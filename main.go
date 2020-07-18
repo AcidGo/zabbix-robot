@@ -60,10 +60,13 @@ const (
     ConfigMainKeyListen                 = "listen"
     ConfigMainKeyFingerPrintKey         = "header_fingerprint_key"
     ConfigMainKeyFingerPrintValue       = "header_fingerprint_value"
+    ConfigmainKeyIgnoreStatus           = "ignore_status"
     ConfigMainMsgRegexpOkHeader         = "msg_regexp_ok_header"
     ConfigMainMsgRegexpOkCompile        = "msg_regexp_ok_compile"
     ConfigMainMsgRegexpProblemHeader    = "msg_regexp_problem_header"
     ConfigMainMsgRegexpProblemCompile   = "msg_regexp_problem_compile"
+
+    ConfigSectionTagconv                = "tagconv"
 )
 
 var (
@@ -84,12 +87,16 @@ var (
     MainFingerPrintKey string
     MainFingerPrintValue string
 
+    MainIgnoreStatus map[string][]string
+
     MsgRegexpOkHeader string
     MsgRegexpOkCompile string
     MsgRegexpProblemHeader string
     MsgRegexpProblemCompile string
     RegexpOkCompile *regexp.Regexp
     RegexpProblemCompile *regexp.Regexp
+    RegexpTagconvStrings map[string]string
+    RegexpTagconvCompiles map[string]*regexp.Regexp
 )
 
 var (
@@ -141,6 +148,7 @@ func bodyToString(body io.ReadCloser) (string, io.ReadCloser, int64) {
 
 
 func regexpDeal(bodyStatus string, body io.ReadCloser) io.ReadCloser {
+    log.Debug("start regexpDeal")
     contents, err := ioutil.ReadAll(body)
     if err != nil {
         log.WithFields(log.Fields{
@@ -151,44 +159,39 @@ func regexpDeal(bodyStatus string, body io.ReadCloser) io.ReadCloser {
 
     s := string(contents)
     var data []byte
-    
+    // result := make(map[string]string)
+    result := make(map[string]interface{})
+
     if bodyStatus == MsgRegexpOkHeader && RegexpOkCompile != nil {
         match := RegexpOkCompile.FindStringSubmatch(s)
         groupNames := RegexpOkCompile.SubexpNames()
-        result := make(map[string]string)
         if len(match) != len(groupNames) {
             log.WithFields(log.Fields{
                 "LenOfMatch": len(match),
                 "LenOfGroupnames": len(groupNames),
                 }).Error("The LenOfMatch and LenOfGroupnames are not equel")
+            err = errors.New("get error in match")
         } else {
             for i, name := range groupNames {
                 if i != 0 && name != "" {
                     result[name] = match[i]
                 }
             }
-            data, err = json.Marshal(result)
         }
     } else if bodyStatus == MsgRegexpProblemHeader && RegexpProblemCompile != nil {
         match := RegexpProblemCompile.FindStringSubmatch(s)
         groupNames := RegexpProblemCompile.SubexpNames()
-        result := make(map[string]string)
         if len(match) != len(groupNames) {
             log.WithFields(log.Fields{
                 "LenOfMatch": len(match),
                 "LenOfGroupnames": len(groupNames),
                 }).Error("The LenOfMatch and LenOfGroupnames are not equel")
+            err = errors.New("get error in match")
         } else {
             for i, name := range groupNames {
                 if i != 0 && name != "" {
                     result[name] = match[i]
                 }
-            }
-            data, err = json.Marshal(result)
-            if err != nil {
-                log.WithFields(log.Fields{
-                    "error": err,
-                    }).Error("try to Marshal the result to json is failed")
             }
         }
     } else {
@@ -197,7 +200,34 @@ func regexpDeal(bodyStatus string, body io.ReadCloser) io.ReadCloser {
             }).Error("not match the bodyStatus")
     }
 
+    if err == nil {
+        log.Debug("start use regexp for tag conv")
+        for tagKey, tagCompile := range RegexpTagconvCompiles {
+            tagConvRes := make(map[string]string)
+            for resKey, resValue := range result {
+                if resKey == tagKey {
+                    match := tagCompile.FindAllStringSubmatch(resValue.(string), -1)
+                    for _, matchArr := range match {
+                        if len(matchArr) > 2 {
+                            tagConvRes[matchArr[1]] = matchArr[2]
+                        }
+                    }
+                }
+            }
+            result[tagKey] = tagConvRes
+        }
+    }
+
+
+    data, errJson := json.Marshal(result)
+    if errJson != nil {
+        log.WithFields(log.Fields{
+            "error": errJson,
+            }).Error("try to Marshal the result to json is failed")
+    }
+
     if err != nil || len(data) == 0 {
+        log.Error("found an error, change to original content to body")
         newReadCloser := ioutil.NopCloser(bytes.NewReader(contents))
         return newReadCloser
     }
@@ -435,6 +465,22 @@ func initRegexp() error {
         }
     }
 
+    RegexpTagconvCompiles = make(map[string]*regexp.Regexp)
+    for tagKey, tagCompileString := range RegexpTagconvStrings {
+        RegexpTagconvCompiles[tagKey], err = regexp.Compile(tagCompileString)
+        if err != nil {
+            log.WithFields(log.Fields{
+                "error": err,
+                "tagKey": tagKey,
+                "tagCompile": RegexpTagconvCompiles[tagKey],
+                }).Error("in initRegexp, get an error when compile RegexpTagconvCompiles")
+        } else {
+            log.WithFields(log.Fields{
+                "tagKey": tagKey,
+                }).Debug("in initRegexp, born tagKey on RegexpTagconvCompiles successfully")
+        }
+    }
+
     return err
 }
 
@@ -476,10 +522,17 @@ func configParse(path string) (*ini.File, error) {
     MainFingerPrintKey = cfg.Section(ConfigSectionMain).Key(ConfigMainKeyFingerPrintKey).String()
     MainFingerPrintValue = cfg.Section(ConfigSectionMain).Key(ConfigMainKeyFingerPrintValue).String()
 
+    err = json.Unmarshal([]byte(cfg.Section(ConfigSectionMain).Key(ConfigmainKeyIgnoreStatus).String()), &MainIgnoreStatus)
+
     MsgRegexpOkHeader = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpOkHeader).String()
     MsgRegexpOkCompile = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpOkCompile).String()
     MsgRegexpProblemHeader = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpProblemHeader).String()
     MsgRegexpProblemCompile = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpProblemCompile).String()
+
+    RegexpTagconvStrings = make(map[string]string)
+    for _, tagKey := range cfg.Section(ConfigSectionTagconv).Keys() {
+        RegexpTagconvStrings[tagKey.Name()] = tagKey.String()
+    }
 
     err = configLog()
     if err != nil {
@@ -560,6 +613,15 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
     log.WithFields(log.Fields{
         "Status": rStatus,
         }).Debug("get the Status from request header")
+
+    if _, ok := MainIgnoreStatus[rStatus]; ok {
+        for _, ignoreStatu := range MainIgnoreStatus[rStatus] {
+            if ignoreStatu == rSeverity {
+                log.Info("the Severity and Status should be ignored, ignore it")
+                return 
+            }
+        }
+    }
 
     unit, ok := unitMap[rSeverity]
     if !ok {
