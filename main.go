@@ -24,7 +24,7 @@ import (
 
 const (
     ProgramName                 = "zabbix-robot"
-    ProgramVersion              = "0.0.2"
+    ProgramVersion              = "0.0.3"
     ProgramExecName             = "zabbix_robot"
     ProgramInitLogLevel         = log.DebugLevel
 
@@ -688,7 +688,9 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
         case LUStatusCreateIU:
             log.Debug("start to create a IU")
             dataCurrent := map[string]interface{}{
-                "EventType": RelayInhibitionEventType,
+                "EventType": map[string]string{
+                    "EventType": RelayInhibitionEventType,
+                },
                 "EventID": RelayInhibitionEventID,
                 "Severity": rSeverity,
                 "Status": RelayInhibitionStatus,
