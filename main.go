@@ -209,7 +209,7 @@ func regexpDeal(bodyStatus string, body io.ReadCloser) io.ReadCloser {
                     match := tagCompile.FindAllStringSubmatch(resValue.(string), -1)
                     for _, matchArr := range match {
                         if len(matchArr) > 2 {
-                            tagConvRes[matchArr[1]] = matchArr[2]
+                            tagConvRes[strings.TrimSpace(matchArr[1])] = strings.TrimSpace(matchArr[2])
                         }
                     }
                 }
@@ -361,7 +361,7 @@ func initUnitMap(cfg *ini.File) error {
             return err
         }
 
-        if (samplingIntervalSecond == 0 || samplingIntervalSecond == 0 || 
+        if (samplingIntervalSecond == 0 || 
             inhibitionIntervalSecond == 0 || inhibitionThresholdNum == 0) {
             log.WithFields(log.Fields{
                 "severityName": severityName,
@@ -396,7 +396,7 @@ func initUnitMap(cfg *ini.File) error {
         return err
     }
 
-    if (samplingIntervalSecond == 0 || samplingIntervalSecond == 0 || 
+    if (samplingIntervalSecond == 0 || 
         inhibitionIntervalSecond == 0 || inhibitionThresholdNum == 0) {
         log.WithFields(log.Fields{
             "severityName": severityName,
