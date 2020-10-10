@@ -3,6 +3,7 @@ package main
 import (
     "bufio"
     "bytes"
+    "database/sql"
     "encoding/json"
     "errors"
     "flag"
@@ -20,6 +21,7 @@ import (
     log "github.com/sirupsen/logrus"
     "github.com/lestrrat/go-file-rotatelogs"
     "gopkg.in/ini.v1"
+    _ "github.com/lib/pq"
 )
 
 const (
@@ -67,6 +69,11 @@ const (
     ConfigMainMsgRegexpProblemCompile   = "msg_regexp_problem_compile"
 
     ConfigSectionTagconv                = "tagconv"
+
+    ConfigSectionReport                 = "report"
+    ConfigReportKeyDBType               = "driver"
+    ConfigReportKeyDBDsn                = "dsn"
+    ConfigReportKeyTable                = "table"
 )
 
 var (
@@ -97,11 +104,26 @@ var (
     RegexpProblemCompile *regexp.Regexp
     RegexpTagconvStrings map[string]string
     RegexpTagconvCompiles map[string]*regexp.Regexp
+
+    ReportDB *sql.DB
+    ReportDBType string
+    ReportDBDsn string
+    ReportTable string
 )
 
 var (
     LogLevel        uint
     ConfigPath      string
+)
+
+// app info
+var (
+    appName             string
+    appAuthor           string
+    appVersion          string
+    appGitCommitHash    string
+    appBuildTime        string
+    appGoVersion        string
 )
 
 var unitMap map[string]*LimitUnit
@@ -146,21 +168,19 @@ func bodyToString(body io.ReadCloser) (string, io.ReadCloser, int64) {
     return s, newReadCloser, length
 }
 
-
-func regexpDeal(bodyStatus string, body io.ReadCloser) io.ReadCloser {
+func regexpDeal(bodyStatus string, body io.ReadCloser) (io.ReadCloser, map[string]interface{}) {
     log.Debug("start regexpDeal")
     contents, err := ioutil.ReadAll(body)
+    result := make(map[string]interface{})
     if err != nil {
         log.WithFields(log.Fields{
             "error": err,
             }).Error("in regexpDeal, get error when readall the body")
-        return nil
+        return nil, result
     }
 
     s := string(contents)
     var data []byte
-    // result := make(map[string]string)
-    result := make(map[string]interface{})
 
     if bodyStatus == MsgRegexpOkHeader && RegexpOkCompile != nil {
         match := RegexpOkCompile.FindStringSubmatch(s)
@@ -229,12 +249,12 @@ func regexpDeal(bodyStatus string, body io.ReadCloser) io.ReadCloser {
     if err != nil || len(data) == 0 {
         log.Error("found an error, change to original content to body")
         newReadCloser := ioutil.NopCloser(bytes.NewReader(contents))
-        return newReadCloser
+        return newReadCloser, result
     }
 
     newReadCloser := ioutil.NopCloser(bytes.NewReader(data))
     log.Debug("finish deal with request msg with regexp successfully")
-    return newReadCloser
+    return newReadCloser, result
 }
 
 func relayPass(remote string, header map[string][]string, body io.ReadCloser) error {
@@ -314,12 +334,14 @@ func FileExists(path string) bool {
 }
 
 func flagUsage() {
-    usageMsg := fmt.Sprintf(`
-%s version: %s
-Author: AcidGo
+    usageMsg := fmt.Sprintf(`Version: %s
+Author: %s
+GitCommit: %s
+BuildTime: %s
+GoVersion: %s
 Usage: %s [-l level] [-f config]
 Options:
-`, ProgramName, ProgramVersion, ProgramExecName)
+`, appVersion, appAuthor, appGitCommitHash, appBuildTime, appGoVersion, ProgramExecName)
 
     fmt.Fprintf(os.Stderr, usageMsg)
     flag.PrintDefaults()
@@ -484,6 +506,27 @@ func initRegexp() error {
     return err
 }
 
+func initReportDB() error {
+    var err error
+    ReportDB, err = sql.Open(ReportDBType, ReportDBDsn)
+    if err != nil {
+        return err
+    }
+    err = ReportDB.Ping()
+    if err != nil {
+        return err
+    }
+    return nil
+}
+
+func mapGet(m map[string]interface{}, k string, v string) interface{} {
+    if x, found := m[k]; found {
+        return x
+    } else {
+        return v
+    }
+}
+
 func configParse(path string) (*ini.File, error) {
     log.Debug("into configParse, start load config file: ", path)
     cfg, err := ini.Load(path)
@@ -533,6 +576,10 @@ func configParse(path string) (*ini.File, error) {
     for _, tagKey := range cfg.Section(ConfigSectionTagconv).Keys() {
         RegexpTagconvStrings[tagKey.Name()] = tagKey.String()
     }
+
+    ReportDBType = cfg.Section(ConfigSectionReport).Key(ConfigReportKeyDBType).String()
+    ReportDBDsn = cfg.Section(ConfigSectionReport).Key(ConfigReportKeyDBDsn).String()
+    ReportTable = cfg.Section(ConfigSectionReport).Key(ConfigReportKeyTable).String()
 
     err = configLog()
     if err != nil {
@@ -585,6 +632,40 @@ func configLog() error {
 
     log.Info("log config finished")
     return nil
+}
+
+func reportDBInsert(db *sql.DB, tableName string, status string, body io.ReadCloser) {
+    sql := fmt.Sprintf("insert into %s values($1, $2, $3, $4, $5, $6, $7, $8, $9)", tableName)
+    _, resMap := regexpDeal(status, body)
+    if len(resMap) <= 0 {
+        log.Error("in reportDBInsert, the message counld not conv to the map")
+        return
+    }
+    nowTime := time.Now().Unix()
+    eventID := mapGet(resMap, "EventID", "").(string)
+    severity := mapGet(resMap, "Severity", "").(string)
+    status_ := mapGet(resMap, "Status", "").(string)
+    hostName := mapGet(resMap, "HostName", "").(string)
+    eventItem := mapGet(resMap, "EventItem", "").(string)
+    eventTime := mapGet(resMap, "EventTime", "").(string)
+    recoverTime := mapGet(resMap, "RecoverTime", "").(string)
+    details := mapGet(resMap, "Details", "").(string)
+
+    _, err := db.Exec(
+        sql,
+        nowTime, 
+        eventID, 
+        severity, 
+        status_, 
+        hostName, 
+        eventItem, 
+        eventTime, 
+        recoverTime, 
+        details, 
+    )
+    if err != nil {
+        log.Error("in reportDBInsert, insert into table get error: ", err)
+    }
 }
 
 func alertHandler(w http.ResponseWriter, r *http.Request) {
@@ -665,7 +746,7 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
             log.Debug("unit is available")
             var newBody io.ReadCloser
             if rStatus != "" {
-                newBody = regexpDeal(rStatus, r.Body)
+                newBody, _ = regexpDeal(rStatus, r.Body)
             } else {
                 newBody = r.Body
             }
@@ -683,6 +764,7 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
         case LUStatusInIU:
             log.Debug("the unit had been limited, check for cutoff")
             log.Debug("still in inhibition")
+            reportDBInsert(ReportDB, ReportTable, rStatus, r.Body)
             return
 
         case LUStatusCreateIU:
@@ -714,6 +796,7 @@ func alertHandler(w http.ResponseWriter, r *http.Request) {
                 dataDelay,
                 )
             log.Debug("finish born a inhibition")
+            reportDBInsert(ReportDB, ReportTable, rStatus, r.Body)
             return
         default:
             log.WithFields(log.Fields{
@@ -746,6 +829,11 @@ func init() {
     if err != nil {
         log.Fatal("get error when init unitmap: ", err)
     }
+
+    err = initReportDB()
+    if err != nil {
+        log.Fatal("get error when init reportDB: ", err)
+    }
 }
 
 func main() {
@@ -753,4 +841,5 @@ func main() {
     log.Println("the zabbix-robot is runnig ......")
     http.HandleFunc(MainURL, alertHandler)
     http.ListenAndServe(MainListen, nil)
+    ReportDB.Close()
 }
