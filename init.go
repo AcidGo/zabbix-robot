@@ -6,6 +6,7 @@ package (
     "time"
 
     log "github.com/sirupsen/logrus"
+    "gopkg.in/ini.v1"
     "github.com/lestrrat/go-file-rotatelogs"
 )
 
@@ -165,6 +166,14 @@ func initRegexp() error {
 
 func initLimitUnitGroup() errror {
     var err error
+    limitGroup = &LimitGroup{}
+
+    for _, subSction := range programIniFile.ChildSections(ConfigSectionRole) {
+        err = limitGroup.AddUnit(subSction)
+        if err != nil {
+            return err
+        }
+    }
     return nil
 }
 

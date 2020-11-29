@@ -27,6 +27,7 @@ const (
     ConfigMainKeyFingerPrintKey         = "header_fingerprint_key"
     ConfigMainKeyFingerPrintValue       = "header_fingerprint_value"
     ConfigmainKeyIgnoreStatus           = "ignore_status"
+    COnfigMainMsgRegexpHeaderField      = "msg_regexp_header_field"
     ConfigMainMsgRegexpOkHeader         = "msg_regexp_ok_header"
     ConfigMainMsgRegexpOkCompile        = "msg_regexp_ok_compile"
     ConfigMainMsgRegexpProblemHeader    = "msg_regexp_problem_header"
@@ -38,6 +39,19 @@ const (
     ConfigReportKeyDBType               = "driver"
     ConfigReportKeyDBDsn                = "dsn"
     ConfigReportKeyTable                = "table"
+
+    ConfigSectionRole = "role"
+    ConfigRoleKeyWeight                 = "weight"
+    ConfigRoleKeyLimitInterval          = "limit_interval"
+    ConfigRoleKeyLimitThreshold         = "limit_threshold"
+    ConfigRoleKeyInhibitInterval        = "inhibit_interval"
+    ConfigRoleKeyInhibitThreshold       = "inhibit_threshold"
+    ConfigRoleKeySpace                  = "space"
+    ConfigRoleKeyField                  = "field"
+    ConfigRoleKeyMethod                 = "method"
+    ConfigRoleKeyDescription            = "descript"
+
+    InnerRemoteAddrField                = "Remote"
 )
 
 var (
@@ -60,13 +74,14 @@ var (
     HttpFingerPrintValue    string
 
     // ignore parameters
-    IgnoreStatus map[string][]string
+    IgnoreSelector map[string][]string
 
     // logger parameters
     logLevel                uint
     logFilePath             string
 
     // regexp parameters
+    RegexpHeaderField string
     RegexpOkHeader string
     RegexpOkCompileString string
     RegexpProblemHeader string
@@ -92,4 +107,9 @@ var (
     RelayInhibitionHostIP       string
     RelayInhibitionEventItem    string
     RelayInhibitionChannel      string
+    RelayIgnoreHeaderFields     []string{"Severity", "Remote", "Status"}
+
+    // role parameters
+    limitGroup                  *LimitGroup
+
 )
