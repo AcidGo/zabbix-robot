@@ -107,9 +107,8 @@ var (
     RelayInhibitionHostIP       string
     RelayInhibitionEventItem    string
     RelayInhibitionChannel      string
-    RelayIgnoreHeaderFields     []string{"Severity", "Remote", "Status"}
+    RelayIgnoreHeaderFields     []string = []string{"Severity", "Remote", "Status"}
 
     // role parameters
     limitGroup                  *LimitGroup
-
 )

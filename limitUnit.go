@@ -27,7 +27,7 @@ type LimitRole struct {
     LimitInterval       int     `ini:"limit_interval,min=1,required"`
     LimitThreshold      int     `ini:"limit_threshold,min=1,required"`
     InhibitInterval     int     `ini:"inhibit_interval,min=1,required"`
-    InhibitThreshold   int     `ini:"inhibit_threshold,min=1,required"`
+    InhibitThreshold    int     `ini:"inhibit_threshold,min=1,required"`
     Space               string  `ini:"space,string,required"`
     Field               string  `ini:"field,string,required"`
     Method              string  `ini:"method,string,required"`
