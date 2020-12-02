@@ -26,6 +26,16 @@ import (
     _ "github.com/lib/pq"
 )
 
+var (
+    // app info
+    AppName                             string
+    AppAuthor                           string
+    AppVersion                          string
+    AppGitCommitHash                    string
+    AppBuildTime                        string
+    AppGoVersion                        string
+)
+
 func init() {
     var err error
 
@@ -259,7 +269,7 @@ BuildTime: %s
 GoVersion: %s
 Usage: %s [-l level] [-f config]
 Options:
-`, config.AppName, config.AppVersion, config.AppAuthor, config.AppGitCommitHash, config.AppBuildTime, config.AppGoVersion, config.AppName)
+`, AppName, AppVersion, AppAuthor, AppGitCommitHash, AppBuildTime, AppGoVersion, AppName)
 
     fmt.Fprintf(os.Stderr, usageMsg)
     flag.PrintDefaults()
@@ -544,7 +554,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-    log.Printf("%s written by %s, the version is %s", config.AppName, config.AppAuthor, config.AppVersion)
+    log.Printf("%s written by %s, the version is %s", AppName, AppAuthor, AppVersion)
     http.HandleFunc(config.HttpURL, mainHandler)
     err := http.ListenAndServe(config.HttpListenPort, nil)
     if err != nil {
