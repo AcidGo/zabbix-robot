@@ -74,7 +74,7 @@ func SendThrough(remote string, header map[string][]string, data interface{}) (s
     return res, err
 }
 
-func SendDelayMap(remote string, header map[string][]string, data map[string]interface{}, dataDelay map[string]interface{}) error {
+func SendDelayMap(remote string, header map[string][]string, data map[string]interface{}, dataDelay map[string]interface{}) (string, error) {
     var err error
     for k, v := range dataDelay {
         if utils.IsFunc(v) {
@@ -93,12 +93,12 @@ func SendDelayMap(remote string, header map[string][]string, data map[string]int
         }
     }
 
-    _, err = sendThroughMap(remote, header, data)
+    res, err := sendThroughMap(remote, header, data)
     if err != nil {
-        return err
+        return res, err
     }
 
-    return nil
+    return res, nil
 }
 
 func RepairHeader(header http.Header, ignoreFileds []string) (http.Header, error) {

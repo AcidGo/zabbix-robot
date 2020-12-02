@@ -22,6 +22,7 @@ import (
     "github.com/lestrrat/go-file-rotatelogs"
     lfshook "github.com/rifflock/lfshook"
     log "github.com/sirupsen/logrus"
+    _ "github.com/go-sql-driver/mysql"
     _ "github.com/lib/pq"
 )
 
@@ -78,10 +79,11 @@ func init() {
     log.Debug("finished to init limit group by config")
 
     err = initReport()
-    // if err != nil {
-    //     log.Fatal("get err when init reportor: ", err)
-    // }
-    // log.Debug("finished to init report channel by config")
+    if err != nil {
+        log.Error("get err when init reportor: ", err)
+    } else {
+        log.Debug("finished to init report channel by config")
+    }
 }
 
 
@@ -145,14 +147,16 @@ func initConfigParse() error {
     log.Debugf("load parameter config.RelayInhibitionChannel: %s", config.RelayInhibitionChannel)
 
     config.HttpListenPort = config.AppIniFile.Section(config.ConfigSectionMain).Key(config.ConfigMainKeyListen).String()
+    log.Debugf("load parameter config.HttpListenPort: %s", config.HttpListenPort)
     config.HttpURL        = config.AppIniFile.Section(config.ConfigSectionMain).Key(config.ConfigMainKeyURL).String()
+    log.Debugf("load parameter config.HttpURL: %s", config.HttpURL)
 
     return nil
 }
 
 func initIgnore() error {
     var err error
-    var t map[string]string
+    var t map[string][]string
 
     err = json.Unmarshal([]byte(config.AppIniFile.Section(config.ConfigSectionIgnore).Key(config.ConfigIgnoreKeySetting).String()), &t)
     if err != nil {
@@ -166,10 +170,7 @@ func initIgnore() error {
         if err != nil {
             return err
         }
-        log.WithFields(log.Fields{
-            "Key": k,
-            "Val": v,
-        }).Debug("added role for ignore")
+        log.Infof("added role for ignore %s: %v", k, v)
     }
 
     return nil
@@ -210,6 +211,7 @@ func initTagconv() error {
         if err != nil {
             return err
         }
+        log.Debug("load tgconv key: ", keyTagconv.Name())
     }
 
     return nil
@@ -234,8 +236,10 @@ func initReport() error {
     var err error
 
     config.ReportDBType = config.AppIniFile.Section(config.ConfigSectionReport).Key(config.ConfigReportKeyDBType).String()
+    log.Debugf("load parameter config.ReportDBType: %s", config.ReportDBType)
     config.ReportDBDsn = config.AppIniFile.Section(config.ConfigSectionReport).Key(config.ConfigReportKeyDBDsn).String()
     config.ReportTableName = config.AppIniFile.Section(config.ConfigSectionReport).Key(config.ConfigReportKeyTable).String()
+    log.Debugf("load parameter config.ReportTableName: %s", config.ReportTableName)
 
     config.ReportDB, err = sql.Open(config.ReportDBType, config.ReportDBDsn)
     if err != nil {
@@ -311,7 +315,7 @@ func refreshLog() error {
                 log.PanicLevel:     writer},
             &log.TextFormatter{
                 TimestampFormat: "2006-01-02 15:04:05.000000000",
-                FullTimestamp:   true,
+                FullTimestamp:    true,
                 DisableTimestamp: false,
                 },
         )
@@ -483,9 +487,12 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
         "Channel": config.RelayInhibitionChannel,
     }
     dataDelay := map[string]interface{} {
+        "Severity": lUnit.GetSeverity,
         "Details": func() string {
-            log.Debugf("the limitUnit %s inhibit's count is %d", lUnit.GetName(), lUnit.InhibitUnit.Count)
-            return fmt.Sprintf("[%s]规则触发抑制，此次抑制了[%d]条", lUnit.GetName(), lUnit.InhibitUnit.Count)
+            lName := lUnit.GetName()
+            iCount := lUnit.InhibitUnit.Count
+            log.Debugf("the limitUnit %s inhibit's count is %d", lName, iCount)
+            return fmt.Sprintf("[%s]规则触发抑制，此次抑制了[%d]条", lName, iCount)
         },
     }
 

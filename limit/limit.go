@@ -26,6 +26,7 @@ const (
 type LimitState int
 
 type LimitRole struct {
+    Severity                string          `ini:"severity,required"`
     Weight                  int             `ini:"weight,min=0,max=100"`
     LimitInterval           int             `ini:"limit_interval,min=1,required"`
     LimitThreshold          int             `ini:"limit_threshold,min=1,required"`
@@ -57,6 +58,7 @@ type LimitUnit struct {
     inhibitThreshold    int
     inhibitDone         chan struct{}
     InhibitUnit         *InhibitUnit
+    delayWorking        sync.Mutex
     count               int
 }
 
@@ -103,6 +105,10 @@ func (lUnit *LimitUnit) GetName() string {
     return lUnit.name
 }
 
+func (lUnit *LimitUnit) GetSeverity() string {
+    return lUnit.role.Severity
+}
+
 func (lUnit *LimitUnit) Match(data map[string]interface{}) (bool, error) {
     var err error
 
@@ -146,10 +152,12 @@ func (lUnit *LimitUnit) Increase(callback utils.DelayFunc, args ...interface{}) 
 }
 
 func (lUnit *LimitUnit) inhibitCreate(callback utils.DelayFunc, args ...interface{}) error {
+    lUnit.delayWorking.Lock()
     lUnit.inhibitDone = make(chan struct{})
     lUnit.InhibitUnit = NewInhibitUnit(lUnit, lUnit.inhibitDone, lUnit.inhibitInterval, lUnit.inhibitThreshold)
 
     go func() {
+        defer lUnit.delayWorking.Unlock()
         select {
         case <- lUnit.inhibitDone:
             in := make([]reflect.Value, len(args))
@@ -157,7 +165,14 @@ func (lUnit *LimitUnit) inhibitCreate(callback utils.DelayFunc, args ...interfac
                 in[i] = reflect.ValueOf(arg)
             }
             f := reflect.ValueOf(callback)
-            _ = f.Call(in)
+            values := f.Call(in)
+            if len(values) > 1 {
+                if _, ok := values[1].Interface().(error); ok {
+                    log.Error("get an err from callback: ", values[1])
+                } else {
+                    log.Debug("get the response from callback: ", values[0])
+                }
+            }
         }
     }()
 
@@ -180,7 +195,7 @@ func NewLimitGroup() *LimitGroup {
 }
 
 func (lGroup *LimitGroup) Len() int {
-    return len(lGroup.nameSet)
+    return len(lGroup.members)
 }
 
 func (lGroup *LimitGroup) Swap(i int, j int) {

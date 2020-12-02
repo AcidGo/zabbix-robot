@@ -12,7 +12,7 @@ import (
     "strings"
 )
 
-type DelayFunc func(remote string, header map[string][]string, data map[string]interface{}, delayData map[string]interface{}) error
+type DelayFunc func(remote string, header map[string][]string, data map[string]interface{}, delayData map[string]interface{}) (string, error)
 
 func FileExists(path string) bool {
     _, err := os.Stat(path)
