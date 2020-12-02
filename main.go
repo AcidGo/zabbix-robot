@@ -2,367 +2,116 @@ package main
 
 import (
     "bufio"
-    "bytes"
     "database/sql"
     "encoding/json"
     "errors"
     "flag"
     "fmt"
-    "io"
-    "io/ioutil"
     "net/http"
     "os"
-    "strings"
-    "reflect"
     "regexp"
     "time"
 
+    "github.com/AcidGo/zabbix-robot/config"
+    achttp "github.com/AcidGo/zabbix-robot/http"
+    "github.com/AcidGo/zabbix-robot/ignore"
+    "github.com/AcidGo/zabbix-robot/limit"
+    "github.com/AcidGo/zabbix-robot/utils"
+
+    "gopkg.in/ini.v1"
+    "github.com/lestrrat/go-file-rotatelogs"
     lfshook "github.com/rifflock/lfshook"
     log "github.com/sirupsen/logrus"
-    "github.com/lestrrat/go-file-rotatelogs"
-    "gopkg.in/ini.v1"
+    _ "github.com/go-sql-driver/mysql"
     _ "github.com/lib/pq"
 )
 
-const (
-    ProgramName                 = "zabbix-robot"
-    ProgramVersion              = "0.0.3"
-    ProgramExecName             = "zabbix_robot"
-    ProgramInitLogLevel         = log.DebugLevel
+func init() {
+    var err error
 
-    SeverityNotClassifiedName   = "Not classified"
-    SeverityInformationName     = "Information"
-    SeverityWarningName         = "Warning"
-    SeverityHighName            = "High"
-    SeverityDisasterName        = "Disaster"
-
-    ConfigDefaultName           = "zabbix_robot.conf"
-
-    ConfigSectionLog            = "log"
-    ConfigLogKeyLogFile         = "logFile"
-    ConfigLogKeyLogLevel        = "logLevel"
-
-    ConfigSectionSeverity       = "severity"
-    ConfigSeverityKeySamplingIntervalSecond   = "samplingIntervalSecond"
-    ConfigSeverityKeySamplingThresholdNum     = "samplingThresholdNum"
-    ConfigSeverityKeyInhibitionIntervalSecond = "inhibitionIntervalSecond"
-    ConfigSeverityKeyInhibitionThresholdNum   = "inhibitionThresholdNum"
-
-    ConfigSectionRelay          = "relay"
-    ConfigRelayKeyRelayInhibitionEventType  = "relayInhibitionEventType"
-    ConfigRelayKeyRelayInhibitionEventID    = "relayInhibitionEventID"
-    ConfigRelayKeyRelayInhibitionStatus     = "relayInhibitionStatus"
-    ConfigRelayKeyRelayInhibitionHostName   = "relayInhibitionHostName"
-    ConfigRelayKeyRelayInhibitionHostIP     = "relayInhibitionHostIP"
-    ConfigRelayKeyRelayInhibitionEventItem  = "relayInhibitionEventItem"
-    ConfigRelayKeyRelayInhibitionChannel    = "relayInhibitionChannel"
-
-    ConfigSectionMain                   = "main"
-    ConfigMainKeyURL                    = "url"
-    ConfigMainKeyListen                 = "listen"
-    ConfigMainKeyFingerPrintKey         = "header_fingerprint_key"
-    ConfigMainKeyFingerPrintValue       = "header_fingerprint_value"
-    ConfigmainKeyIgnoreStatus           = "ignore_status"
-    ConfigMainMsgRegexpOkHeader         = "msg_regexp_ok_header"
-    ConfigMainMsgRegexpOkCompile        = "msg_regexp_ok_compile"
-    ConfigMainMsgRegexpProblemHeader    = "msg_regexp_problem_header"
-    ConfigMainMsgRegexpProblemCompile   = "msg_regexp_problem_compile"
-
-    ConfigSectionTagconv                = "tagconv"
-
-    ConfigSectionReport                 = "report"
-    ConfigReportKeyDBType               = "driver"
-    ConfigReportKeyDBDsn                = "dsn"
-    ConfigReportKeyTable                = "table"
-)
-
-var (
-    ConfigLogFile       string
-    ConfigLogLevel      uint
-    ConfigSeverityMap   map[string]map[string]interface{}
-
-    RelayInhibitionEventType    string
-    RelayInhibitionEventID      string
-    RelayInhibitionStatus       string
-    RelayInhibitionHostName     string
-    RelayInhibitionHostIP       string
-    RelayInhibitionEventItem    string
-    RelayInhibitionChannel      string
-
-    MainListen string
-    MainURL    string
-    MainFingerPrintKey string
-    MainFingerPrintValue string
-
-    MainIgnoreStatus map[string][]string
-
-    MsgRegexpOkHeader string
-    MsgRegexpOkCompile string
-    MsgRegexpProblemHeader string
-    MsgRegexpProblemCompile string
-    RegexpOkCompile *regexp.Regexp
-    RegexpProblemCompile *regexp.Regexp
-    RegexpTagconvStrings map[string]string
-    RegexpTagconvCompiles map[string]*regexp.Regexp
-
-    ReportDB *sql.DB
-    ReportDBType string
-    ReportDBDsn string
-    ReportTable string
-)
-
-var (
-    LogLevel        uint
-    ConfigPath      string
-)
-
-// app info
-var (
-    appName             string
-    appAuthor           string
-    appVersion          string
-    appGitCommitHash    string
-    appBuildTime        string
-    appGoVersion        string
-)
-
-var unitMap map[string]*LimitUnit
-// var ESStrMapping = map[string]string {
-//     `"`: `\"`,
-//     `\`: `\\`,
-//     "\n": "\\n",
-//     "\b": "\\b",
-//     "\f": "\\f",
-//     "\t": "\\t",
-//     "\r": "\\r",
-// }
-
-// func CookStrRegexp(rawStr string, escapeMapping map[string]string) string {
-//     var resString string
-//     resTmp := make([]string, 10)
-//     for _, r := range rawStr {
-//         s := string(r)
-//         v, ok := ESStrMapping[s]
-//         if ok {
-//             resTmp = append(resTmp, v)
-//             continue
-//         }
-//         resTmp = append(resTmp, s)
-//     }
-//     resString = strings.Join(resTmp, "")
-//     return resString
-// }
-
-func bodyToString(body io.ReadCloser) (string, io.ReadCloser, int64) {
-    contents, err := ioutil.ReadAll(body)
+    err = initLog()
     if err != nil {
-        log.WithFields(log.Fields{
-            "error": err,
-            }).Error("in bodyToString, get error when readall the body")
+        log.Fatal("get err when init log: ", err)
     }
+    log.Debug("finished to init logger")
 
-    length := int64(len(contents))
-
-    newReadCloser := ioutil.NopCloser(bytes.NewReader(contents))
-    s := string(contents)
-    return s, newReadCloser, length
-}
-
-func regexpDeal(bodyStatus string, body io.ReadCloser) (io.ReadCloser, map[string]interface{}) {
-    log.Debug("start regexpDeal")
-    contents, err := ioutil.ReadAll(body)
-    result := make(map[string]interface{})
+    err = initFlag()
     if err != nil {
-        log.WithFields(log.Fields{
-            "error": err,
-            }).Error("in regexpDeal, get error when readall the body")
-        return nil, result
+        log.Fatal("get err when init flag: ", err)
     }
+    log.Debug("finished to init flag parse")
 
-    s := string(contents)
-    var data []byte
+    err = initConfigParse()
+    if err != nil {
+        log.Fatal("get err when init parse config: ", err)
+    }
+    log.Debug("finished to load config from ", config.AppConfigPath)
 
-    if bodyStatus == MsgRegexpOkHeader && RegexpOkCompile != nil {
-        match := RegexpOkCompile.FindStringSubmatch(s)
-        groupNames := RegexpOkCompile.SubexpNames()
-        if len(match) != len(groupNames) {
-            log.WithFields(log.Fields{
-                "LenOfMatch": len(match),
-                "LenOfGroupnames": len(groupNames),
-                }).Error("The LenOfMatch and LenOfGroupnames are not equel")
-            err = errors.New("get error in match")
-        } else {
-            for i, name := range groupNames {
-                if i != 0 && name != "" {
-                    result[name] = match[i]
-                }
-            }
-        }
-    } else if bodyStatus == MsgRegexpProblemHeader && RegexpProblemCompile != nil {
-        match := RegexpProblemCompile.FindStringSubmatch(s)
-        groupNames := RegexpProblemCompile.SubexpNames()
-        if len(match) != len(groupNames) {
-            log.WithFields(log.Fields{
-                "LenOfMatch": len(match),
-                "LenOfGroupnames": len(groupNames),
-                }).Error("The LenOfMatch and LenOfGroupnames are not equel")
-            err = errors.New("get error in match")
-        } else {
-            for i, name := range groupNames {
-                if i != 0 && name != "" {
-                    result[name] = match[i]
-                }
-            }
-        }
+    err = refreshLog()
+    if err != nil {
+        log.Fatal("get err when re-fresh log config: ", err)
+    }
+    log.Debug("finished to re-fresh logger by config")
+
+    err = initIgnore()
+    if err != nil {
+        log.Fatal("get err when init ignore: ", err)
+    }
+    log.Debug("finished to init ignore unit by config")
+
+    err = initFormat()
+    if err != nil {
+        log.Fatal("get err when init regexp: ", err)
+    }
+    log.Debug("finished to init formater by config")
+
+    err = initTagconv()
+    if err != nil {
+        log.Fatal("get err when init tag conv: ", err)
+    }
+    log.Debug("finished to init tag conv by config")
+
+    err = initLimitGroup()
+    if err != nil {
+        log.Fatal("get err when init limit group: ", err)
+    }
+    log.Debug("finished to init limit group by config")
+
+    err = initReport()
+    if err != nil {
+        log.Error("get err when init reportor: ", err)
     } else {
-        log.WithFields(log.Fields{
-            "bodyStatus": bodyStatus,
-            }).Error("not match the bodyStatus")
+        log.Debug("finished to init report channel by config")
     }
-
-    if err == nil {
-        log.Debug("start use regexp for tag conv")
-        for tagKey, tagCompile := range RegexpTagconvCompiles {
-            tagConvRes := make(map[string]string)
-            for resKey, resValue := range result {
-                if resKey == tagKey {
-                    match := tagCompile.FindAllStringSubmatch(resValue.(string), -1)
-                    for _, matchArr := range match {
-                        if len(matchArr) > 2 {
-                            tagConvRes[strings.TrimSpace(matchArr[1])] = strings.TrimSpace(matchArr[2])
-                        }
-                    }
-                }
-            }
-            result[tagKey] = tagConvRes
-        }
-    }
-
-
-    data, errJson := json.Marshal(result)
-    if errJson != nil {
-        log.WithFields(log.Fields{
-            "error": errJson,
-            }).Error("try to Marshal the result to json is failed")
-    }
-
-    if err != nil || len(data) == 0 {
-        log.Error("found an error, change to original content to body")
-        newReadCloser := ioutil.NopCloser(bytes.NewReader(contents))
-        return newReadCloser, result
-    }
-
-    newReadCloser := ioutil.NopCloser(bytes.NewReader(data))
-    log.Debug("finish deal with request msg with regexp successfully")
-    return newReadCloser, result
 }
 
-func relayPass(remote string, header map[string][]string, body io.ReadCloser) error {
-    s, body, length := bodyToString(body)
-    log.WithFields(log.Fields{
-        "body": s,
-        }).Info("into relayPass, get the body string format")
-
-    client := &http.Client{}
-    req, err := http.NewRequest("POST", remote, nil)
-    if err != nil {
-        return err
-    }
-
-    req.Header = header
-    req.Body = body
-    req.ContentLength = length
-    rsp, err := client.Do(req)
-    if err != nil {
-        log.Error("relayPass get error:", err)
-        return err
-    }
-    log.WithFields(log.Fields{
-        "respon": rsp,
-        }).Debug("respon from remote http server")
-    s, _, _ = bodyToString(rsp.Body)
-    log.WithFields(log.Fields{
-        "responBody": s,
-        }).Debug("string response body from remote http server")
-
+func initLog() error {
+    customFormatter := new(log.TextFormatter)
+    customFormatter.TimestampFormat = "2006-01-02 15:04:05.000000000"
+    customFormatter.FullTimestamp = true
+    customFormatter.DisableTimestamp = false
+    log.SetFormatter(customFormatter)
+    log.SetOutput(os.Stdout)
+    log.SetLevel(config.AppInitLogLevel)
     return nil
 }
 
-func relayDelay(remote string, header map[string][]string, data map[string]interface{}, dataDelay map[string]interface{}) error {
-    log.Debug("before all cook, the length of data is: ", len(data))
-    for k, v := range dataDelay {
-        if IsFunc(v) {
-            log.WithFields(log.Fields{
-                "key": k,
-                }).Debug("in relayDelay, found a func value")
-            f := reflect.ValueOf(v)
-            vv := f.Call([]reflect.Value{})
-            ss := make([]string, len(vv))
-            for _, i := range vv {
-                if len(strings.Trim(i.String(), " ")) == 0 {
-                    continue
-                }
-                ss = append(ss, strings.Trim(i.String(), " "))
-            }
-            data[k] = strings.Join(ss, "")
-        } else {
-            data[k] = v
-        }
-        log.Debug("after cook, the type of delay data is: ", data[k])
-    }
-    log.Debug("after all cook, the length of data is: ", len(data))
-    bodyJson, _ := json.Marshal(data)
-    body := ioutil.NopCloser(bytes.NewReader(bodyJson))
-    err := relayPass(remote, header, body)
-
-    return err
-}
-
-func IsFunc(v interface{}) bool {
-   return reflect.TypeOf(v).Kind() == reflect.Func
-}
-
-func FileExists(path string) bool {
-    _, err := os.Stat(path)
-    if err != nil {
-        if os.IsExist(err) {
-            return true
-        }
-        return false
-    }
-    return true
-}
-
-func flagUsage() {
-    usageMsg := fmt.Sprintf(`Version: %s
-Author: %s
-GitCommit: %s
-BuildTime: %s
-GoVersion: %s
-Usage: %s [-l level] [-f config]
-Options:
-`, appVersion, appAuthor, appGitCommitHash, appBuildTime, appGoVersion, ProgramExecName)
-
-    fmt.Fprintf(os.Stderr, usageMsg)
-    flag.PrintDefaults()
-}
-
 func initFlag() error {
-    flag.UintVar(&LogLevel, "l", 4, "the `level` of the log")
-    flag.StringVar(&ConfigPath, "f", ConfigDefaultName, "set `config` for the program")
+    flag.UintVar(&config.LogLevel, "l", 4, "the `level` of the log")
+    flag.StringVar(&config.AppConfigPath, "f", config.ConfigDefaultName, "set `config` for the program")
 
     flag.Usage = flagUsage
     flag.Parse()
 
-    if ConfigPath == "" {
+    if config.AppConfigPath == "" {
         log.Error("the configure file is nil, please input it")
         err := errors.New("the configure is not defined")
         return err
     }
 
-    if !FileExists(ConfigPath) {
+    if !utils.FileExists(config.AppConfigPath) {
         log.WithFields(log.Fields{
-            "path": ConfigPath,
+            "path": config.AppConfigPath,
             }).Error("the path of configure defined is not exists")
         err := errors.New("the configure file is not exists")
         return err
@@ -371,233 +120,174 @@ func initFlag() error {
     return nil
 }
 
-func initUnitMap(cfg *ini.File) error {
-    unitMap = make(map[string]*LimitUnit)
-    for _, child := range cfg.ChildSections(ConfigSectionSeverity) {
-        severityName := strings.Join(strings.Split(child.Name(), ".")[1:], "")
-        samplingIntervalSecond, err     := child.Key(ConfigSeverityKeySamplingIntervalSecond).Int()
-        samplingThresholdNum, err       := child.Key(ConfigSeverityKeySamplingThresholdNum).Int()
-        inhibitionIntervalSecond, err   := child.Key(ConfigSeverityKeyInhibitionIntervalSecond).Int()
-        inhibitionThresholdNum, err     := child.Key(ConfigSeverityKeyInhibitionThresholdNum).Int()
+func initConfigParse() error {
+    var err error
+
+    log.Debug("parsing the conf for loading confif file")
+    config.AppIniFile, err = ini.Load(config.AppConfigPath)
+    if err != nil {
+        return err
+    }
+
+    config.RelayInhibitionEventType    = config.AppIniFile.Section(config.ConfigSectionRelay).Key(config.ConfigRelayKeyRelayInhibitionEventType).String()
+    log.Debugf("load parameter config.RelayInhibitionEventType: %s", config.RelayInhibitionEventType)
+    config.RelayInhibitionEventID      = config.AppIniFile.Section(config.ConfigSectionRelay).Key(config.ConfigRelayKeyRelayInhibitionEventID).String()
+    log.Debugf("load parameter config.RelayInhibitionEventID: %s", config.RelayInhibitionEventID)
+    config.RelayInhibitionStatus       = config.AppIniFile.Section(config.ConfigSectionRelay).Key(config.ConfigRelayKeyRelayInhibitionStatus).String()
+    log.Debugf("load parameter config.RelayInhibitionStatus: %s", config.RelayInhibitionStatus)
+    config.RelayInhibitionHostName     = config.AppIniFile.Section(config.ConfigSectionRelay).Key(config.ConfigRelayKeyRelayInhibitionHostName).String()
+    log.Debugf("load parameter config.RelayInhibitionHostName: %s", config.RelayInhibitionHostName)
+    config.RelayInhibitionHostIP       = config.AppIniFile.Section(config.ConfigSectionRelay).Key(config.ConfigRelayKeyRelayInhibitionHostIP).String()
+    log.Debugf("load parameter config.RelayInhibitionHostIP: %s", config.RelayInhibitionHostIP)
+    config.RelayInhibitionEventItem    = config.AppIniFile.Section(config.ConfigSectionRelay).Key(config.ConfigRelayKeyRelayInhibitionEventItem).String()
+    log.Debugf("load parameter config.RelayInhibitionEventItem: %s", config.RelayInhibitionEventItem)
+    config.RelayInhibitionChannel      = config.AppIniFile.Section(config.ConfigSectionRelay).Key(config.ConfigRelayKeyRelayInhibitionChannel).String()
+    log.Debugf("load parameter config.RelayInhibitionChannel: %s", config.RelayInhibitionChannel)
+
+    config.HttpListenPort = config.AppIniFile.Section(config.ConfigSectionMain).Key(config.ConfigMainKeyListen).String()
+    log.Debugf("load parameter config.HttpListenPort: %s", config.HttpListenPort)
+    config.HttpURL        = config.AppIniFile.Section(config.ConfigSectionMain).Key(config.ConfigMainKeyURL).String()
+    log.Debugf("load parameter config.HttpURL: %s", config.HttpURL)
+
+    return nil
+}
+
+func initIgnore() error {
+    var err error
+    var t map[string][]string
+
+    err = json.Unmarshal([]byte(config.AppIniFile.Section(config.ConfigSectionIgnore).Key(config.ConfigIgnoreKeySetting).String()), &t)
+    if err != nil {
+        return err
+    }
+
+    config.IgnoreUnit = ignore.NewIgnoreUnit()
+    for k, v := range t {
+        iRole := ignore.IgnoreRole{Key: k, Val: v}
+        err = config.IgnoreUnit.AddRole(iRole)
         if err != nil {
             return err
         }
-
-        if (samplingIntervalSecond == 0 || 
-            inhibitionIntervalSecond == 0 || inhibitionThresholdNum == 0) {
-            log.WithFields(log.Fields{
-                "severityName": severityName,
-                "samplingIntervalSecond": samplingIntervalSecond,
-                "samplingThresholdNum": samplingThresholdNum,
-                "inhibitionIntervalSecond": inhibitionIntervalSecond,
-                "inhibitionThresholdNum": inhibitionThresholdNum,
-                }).Error("the params must be int type and positive number")
-            return errors.New("the params must be int type and positive number")
-        }
-
-        unitMap[severityName] = NewLimitUnit(
-            severityName, 
-            time.Duration(samplingIntervalSecond)*time.Second, 
-            samplingThresholdNum, 
-            time.Duration(inhibitionIntervalSecond)*time.Second, 
-            inhibitionThresholdNum,
-        )
-
-        log.Debug("generate new unit in unitMap: ", unitMap[severityName])
+        log.Infof("added role for ignore %s: %v", k, v)
     }
-
-    // init default for unknow section
-    severityName := "_default"
-    s := cfg.Section(ConfigSectionSeverity)
-    samplingIntervalSecond, err     := s.Key(ConfigSeverityKeySamplingIntervalSecond).Int()
-    samplingThresholdNum, err       := s.Key(ConfigSeverityKeySamplingThresholdNum).Int()
-    inhibitionIntervalSecond, err   := s.Key(ConfigSeverityKeyInhibitionIntervalSecond).Int()
-    inhibitionThresholdNum, err     := s.Key(ConfigSeverityKeyInhibitionThresholdNum).Int()
-
-    if err != nil {
-        return err
-    }
-
-    if (samplingIntervalSecond == 0 || 
-        inhibitionIntervalSecond == 0 || inhibitionThresholdNum == 0) {
-        log.WithFields(log.Fields{
-            "severityName": severityName,
-            "samplingIntervalSecond": samplingIntervalSecond,
-            "samplingThresholdNum": samplingThresholdNum,
-            "inhibitionIntervalSecond": inhibitionIntervalSecond,
-            "inhibitionThresholdNum": inhibitionThresholdNum,
-            }).Error("the params must be int type and positive number")
-        return errors.New("the params must be int type and positive number")
-    }
-
-    unitMap[severityName] = NewLimitUnit(
-        severityName, 
-        time.Duration(samplingIntervalSecond)*time.Second, 
-        samplingThresholdNum, 
-        time.Duration(inhibitionIntervalSecond)*time.Second, 
-        inhibitionThresholdNum,
-    )
-
-    log.Debug("generate new _default unit in unitMap: ", unitMap[severityName])
 
     return nil
 }
 
-func initLog(level log.Level) {
-    customFormatter := new(log.TextFormatter)
-    customFormatter.TimestampFormat = "2006-01-02 15:04:05.000000000"
-    customFormatter.FullTimestamp = true
-    customFormatter.DisableTimestamp = false
-    log.SetFormatter(customFormatter)
-    log.SetOutput(os.Stdout)
-    log.SetLevel(level)
-}
-
-func initRegexp() error {
+func initFormat() error {
     var err error
-    if MsgRegexpOkCompile == "" {
-        RegexpOkCompile = nil
-    } else {
-        RegexpOkCompile, err = regexp.Compile(MsgRegexpOkCompile)
-        if err != nil {
-            log.WithFields(log.Fields{
-                "error": err,
-                "MsgRegexpOkCompile": MsgRegexpOkCompile,
-                }).Error("in initRegexp, get an error when complie MsgRegexpOkCompile")
-        } else {
-            log.WithFields(log.Fields{
-                "MsgRegexpOkCompile": MsgRegexpOkCompile,
-                }).Debug("in initRegexp, born RegexpOkCompile successfully")
-        }
-    }
 
-    if MsgRegexpProblemCompile == "" {
-        RegexpProblemCompile = nil
-    } else {
-        RegexpProblemCompile, err = regexp.Compile(MsgRegexpProblemCompile)
-        if err != nil {
-            log.WithFields(log.Fields{
-                "error": err,
-                "MsgRegexpProblemCompile": MsgRegexpProblemCompile,
-                }).Error("in initRegexp, get an error when complie MsgRegexpProblemCompile")
-        } else {
-            log.WithFields(log.Fields{
-                "MsgRegexpProblemCompile": MsgRegexpProblemCompile,
-                }).Debug("in initRegexp, born RegexpProblemCompile successfully")
-        }
-    }
+    config.FormatRegexpHeaderField = config.AppIniFile.Section(config.ConfigSectionFormat).Key(config.ConfigFormatKeyRegexpHeaderField).String()
+    log.Debugf("load parameter config.FormatRegexpHeaderField: %s", config.FormatRegexpHeaderField)
+    config.FormatRegexpOkHeader = config.AppIniFile.Section(config.ConfigSectionFormat).Key(config.ConfigFormatKeyRegexpOkHeader).String()
+    log.Debugf("load parameter config.FormatRegexpOkHeader: %s", config.FormatRegexpOkHeader)
+    config.FormatRegexpOkCompileString = config.AppIniFile.Section(config.ConfigSectionFormat).Key(config.ConfigFormatKeyRegexpOkCompile).String()
+    log.Debugf("load parameter config.FormatRegexpOkCompileString: %s", config.FormatRegexpOkCompileString)
+    config.FormatRegexpProblemHeader = config.AppIniFile.Section(config.ConfigSectionFormat).Key(config.ConfigFormatKeyRegexpProblemHeader).String()
+    log.Debugf("load parameter config.FormatRegexpProblemHeader: %s", config.FormatRegexpProblemHeader)
+    config.FormatRegexpProblemCompileString = config.AppIniFile.Section(config.ConfigSectionFormat).Key(config.ConfigFormatKeyRegexpProblemCompile).String()
+    log.Debugf("load parameter config.FormatRegexpProblemCompileString: %s", config.FormatRegexpProblemCompileString)
 
-    RegexpTagconvCompiles = make(map[string]*regexp.Regexp)
-    for tagKey, tagCompileString := range RegexpTagconvStrings {
-        RegexpTagconvCompiles[tagKey], err = regexp.Compile(tagCompileString)
-        if err != nil {
-            log.WithFields(log.Fields{
-                "error": err,
-                "tagKey": tagKey,
-                "tagCompile": RegexpTagconvCompiles[tagKey],
-                }).Error("in initRegexp, get an error when compile RegexpTagconvCompiles")
-        } else {
-            log.WithFields(log.Fields{
-                "tagKey": tagKey,
-                }).Debug("in initRegexp, born tagKey on RegexpTagconvCompiles successfully")
-        }
-    }
-
-    return err
-}
-
-func initReportDB() error {
-    var err error
-    ReportDB, err = sql.Open(ReportDBType, ReportDBDsn)
+    config.FormatRegexpOkCompile, err = regexp.Compile(config.FormatRegexpOkCompileString)
     if err != nil {
         return err
     }
-    err = ReportDB.Ping()
+    config.FormatRegexpProblemCompile, err = regexp.Compile(config.FormatRegexpProblemCompileString)
+    if err != nil {
+        return err
+    }
+
+    return nil
+}
+
+func initTagconv() error {
+    var err error
+    config.TagconvCompiles = make(map[string]*regexp.Regexp)
+
+    for _, keyTagconv := range config.AppIniFile.Section(config.ConfigSectionTagconv).Keys() {
+        config.TagconvCompiles[keyTagconv.Name()], err = regexp.Compile(keyTagconv.String())
+        if err != nil {
+            return err
+        }
+        log.Debug("load tgconv key: ", keyTagconv.Name())
+    }
+
+    return nil
+}
+
+func initLimitGroup() error {
+    var err error
+
+    config.LimitGroup = limit.NewLimitGroup()
+    for _, subSection := range config.AppIniFile.ChildSections(config.ConfigSectionRole) {
+        err = config.LimitGroup.AddUnit(subSection)
+        if err != nil {
+            return err
+        }
+        log.Infof("added an limit unit %s for limit group", subSection.Name())
+    }
+
+    return nil
+}
+
+func initReport() error {
+    var err error
+
+    config.ReportDBType = config.AppIniFile.Section(config.ConfigSectionReport).Key(config.ConfigReportKeyDBType).String()
+    log.Debugf("load parameter config.ReportDBType: %s", config.ReportDBType)
+    config.ReportDBDsn = config.AppIniFile.Section(config.ConfigSectionReport).Key(config.ConfigReportKeyDBDsn).String()
+    config.ReportTableName = config.AppIniFile.Section(config.ConfigSectionReport).Key(config.ConfigReportKeyTable).String()
+    log.Debugf("load parameter config.ReportTableName: %s", config.ReportTableName)
+
+    config.ReportDB, err = sql.Open(config.ReportDBType, config.ReportDBDsn)
+    if err != nil {
+        return err
+    }
+    err = config.ReportDB.Ping()
     if err != nil {
         return err
     }
     return nil
 }
 
-func mapGet(m map[string]interface{}, k string, v string) interface{} {
-    if x, found := m[k]; found {
-        return x
-    } else {
-        return v
-    }
+func flagUsage() {
+    usageMsg := fmt.Sprintf(`%s
+Version: %s
+Author: %s
+GitCommit: %s
+BuildTime: %s
+GoVersion: %s
+Usage: %s [-l level] [-f config]
+Options:
+`, config.AppName, config.AppVersion, config.AppAuthor, config.AppGitCommitHash, config.AppBuildTime, config.AppGoVersion, config.AppName)
+
+    fmt.Fprintf(os.Stderr, usageMsg)
+    flag.PrintDefaults()
 }
 
-func configParse(path string) (*ini.File, error) {
-    log.Debug("into configParse, start load config file: ", path)
-    cfg, err := ini.Load(path)
-    if err != nil {
-        return nil, err
-    }
-
-    s, err := cfg.GetSection(ConfigSectionLog)
+func refreshLog() error {
+    s, err := config.AppIniFile.GetSection(config.ConfigSectionLog)
     if err != nil {
         log.WithFields(log.Fields{
-            "section": ConfigSectionLog,
-            }).Error("the section not exists")
-        return nil, err
+            "section": config.ConfigSectionLog,
+        }).Error("the section is not exist")
+        return err
     }
-
-    ConfigLogFile = s.Key(ConfigLogKeyLogFile).String()
-    ConfigLogLevel, err = s.Key(ConfigLogKeyLogLevel).Uint()
+    config.LogFilePath = s.Key(config.ConfigLogKeyLogFile).String()
+    config.LogLevel, err = s.Key(config.ConfigLogKeyLogLevel).Uint()
     if err != nil {
-        log.WithFields(log.Fields{
-            "ConfigLogLevel": ConfigLogLevel,
-            }).Error(fmt.Sprintf("the config value of key %s must be uint", ConfigLogKeyLogLevel))
-        return nil, err
+        log.Errorf("the config value of key %s must be uint", config.ConfigLogKeyLogLevel)
+        return err
     }
 
-    RelayInhibitionEventType    = cfg.Section(ConfigSectionRelay).Key(ConfigRelayKeyRelayInhibitionEventType).String()
-    RelayInhibitionEventID      = cfg.Section(ConfigSectionRelay).Key(ConfigRelayKeyRelayInhibitionEventID).String()
-    RelayInhibitionStatus       = cfg.Section(ConfigSectionRelay).Key(ConfigRelayKeyRelayInhibitionStatus).String()
-    RelayInhibitionHostName     = cfg.Section(ConfigSectionRelay).Key(ConfigRelayKeyRelayInhibitionHostName).String()
-    RelayInhibitionHostIP       = cfg.Section(ConfigSectionRelay).Key(ConfigRelayKeyRelayInhibitionHostIP).String()
-    RelayInhibitionEventItem    = cfg.Section(ConfigSectionRelay).Key(ConfigRelayKeyRelayInhibitionEventItem).String()
-    RelayInhibitionChannel      = cfg.Section(ConfigSectionRelay).Key(ConfigRelayKeyRelayInhibitionChannel).String()
-
-    MainListen = cfg.Section(ConfigSectionMain).Key(ConfigMainKeyListen).String()
-    MainURL    = cfg.Section(ConfigSectionMain).Key(ConfigMainKeyURL).String()
-
-    MainFingerPrintKey = cfg.Section(ConfigSectionMain).Key(ConfigMainKeyFingerPrintKey).String()
-    MainFingerPrintValue = cfg.Section(ConfigSectionMain).Key(ConfigMainKeyFingerPrintValue).String()
-
-    err = json.Unmarshal([]byte(cfg.Section(ConfigSectionMain).Key(ConfigmainKeyIgnoreStatus).String()), &MainIgnoreStatus)
-
-    MsgRegexpOkHeader = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpOkHeader).String()
-    MsgRegexpOkCompile = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpOkCompile).String()
-    MsgRegexpProblemHeader = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpProblemHeader).String()
-    MsgRegexpProblemCompile = cfg.Section(ConfigSectionMain).Key(ConfigMainMsgRegexpProblemCompile).String()
-
-    RegexpTagconvStrings = make(map[string]string)
-    for _, tagKey := range cfg.Section(ConfigSectionTagconv).Keys() {
-        RegexpTagconvStrings[tagKey.Name()] = tagKey.String()
-    }
-
-    ReportDBType = cfg.Section(ConfigSectionReport).Key(ConfigReportKeyDBType).String()
-    ReportDBDsn = cfg.Section(ConfigSectionReport).Key(ConfigReportKeyDBDsn).String()
-    ReportTable = cfg.Section(ConfigSectionReport).Key(ConfigReportKeyTable).String()
-
-    err = configLog()
-    if err != nil {
-        return nil, err
-    }
-
-    return cfg, nil
-}
-
-func configLog() error {
-    log.SetLevel(log.Level(ConfigLogLevel))
-    if ConfigLogFile == "" {
+    log.SetLevel(log.Level(config.LogLevel))
+    if config.LogFilePath == "" {
         log.SetOutput(os.Stdout)
     } else {
-        log.Info("start to change log mode")
+        log.Info("starting to change log mode ......")
         writer, err := rotatelogs.New(
-            ConfigLogFile + ".%Y%m%d%H%M",
-            rotatelogs.WithLinkName(ConfigLogFile),
+            config.LogFilePath + ".%Y%m%d%H%M",
+            rotatelogs.WithLinkName(config.LogFilePath),
             rotatelogs.WithMaxAge(7*24*time.Hour),
         )
         if err != nil {
@@ -616,40 +306,44 @@ func configLog() error {
         lfHook := lfshook.NewHook(
             lfshook.WriterMap{
                 log.DebugLevel:     writer,
-                log.InfoLevel:     writer,
-                log.WarnLevel:     writer,
+                log.InfoLevel:      writer,
+                log.WarnLevel:      writer,
                 log.ErrorLevel:     writer,
                 log.FatalLevel:     writer,
                 log.PanicLevel:     writer},
             &log.TextFormatter{
                 TimestampFormat: "2006-01-02 15:04:05.000000000",
-                FullTimestamp:   true,
+                FullTimestamp:    true,
                 DisableTimestamp: false,
                 },
-            )
+        )
         log.AddHook(lfHook)
     }
 
-    log.Info("log config finished")
+    log.Info("log re-fresh config finished")
     return nil
 }
 
-func reportDBInsert(db *sql.DB, tableName string, status string, body io.ReadCloser) {
+func reportDBInsert(db *sql.DB, tableName string, resMap map[string]interface{}) error {
+    if db == nil {
+        return errors.New("the report database is nil, exit report for the database")
+    }
+
     sql := fmt.Sprintf("insert into %s values($1, $2, $3, $4, $5, $6, $7, $8, $9)", tableName)
-    _, resMap := regexpDeal(status, body)
     if len(resMap) <= 0 {
-        log.Error("in reportDBInsert, the message counld not conv to the map")
-        return
+        err := errors.New("in reportDBInsert, the message counld not conv to the map")
+        log.Error(err)
+        return err
     }
     nowTime := time.Now().Unix()
-    eventID := mapGet(resMap, "EventID", "").(string)
-    severity := mapGet(resMap, "Severity", "").(string)
-    status_ := mapGet(resMap, "Status", "").(string)
-    hostName := mapGet(resMap, "HostName", "").(string)
-    eventItem := mapGet(resMap, "EventItem", "").(string)
-    eventTime := mapGet(resMap, "EventTime", "").(string)
-    recoverTime := mapGet(resMap, "RecoverTime", "").(string)
-    details := mapGet(resMap, "Details", "").(string)
+    eventID := utils.MapGet(resMap, "EventID", "").(string)
+    severity := utils.MapGet(resMap, "Severity", "").(string)
+    status_ := utils.MapGet(resMap, "Status", "").(string)
+    hostName := utils.MapGet(resMap, "HostName", "").(string)
+    eventItem := utils.MapGet(resMap, "EventItem", "").(string)
+    eventTime := utils.MapGet(resMap, "EventTime", "").(string)
+    recoverTime := utils.MapGet(resMap, "RecoverTime", "").(string)
+    details := utils.MapGet(resMap, "Details", "").(string)
 
     _, err := db.Exec(
         sql,
@@ -665,181 +359,196 @@ func reportDBInsert(db *sql.DB, tableName string, status string, body io.ReadClo
     )
     if err != nil {
         log.Error("in reportDBInsert, insert into table get error: ", err)
+        return err
     }
+    return nil
 }
 
-func alertHandler(w http.ResponseWriter, r *http.Request) {
-    var s string
-    s, r.Body, _ = bodyToString(r.Body)
-    log.WithFields(log.Fields{
-        "method": r.Method,
-        "body": s,
-        }).Debug("in router alertHandler, get a new request")
+func purgeEnv() {
+    if config.ReportDB != nil {
+        config.ReportDB.Close()
+    }
+
+    log.Info("finished purge the app env")
+}
+
+func mainHandler(w http.ResponseWriter, r *http.Request) {
+    var err error
+    var bodyString string
+    var bodyMap map[string]interface{}
+    var rRemote string
+    var rHeader map[string][]string
+    var rRsp string
+
+    log.Debug("get a new accessing request")
+    bodyString, _, err = utils.BodyToString(r.Body)
+    if err != nil {
+        log.Error("get an err when conv the request body to string: ", err)
+    }
+    log.Debug("request's body: ", bodyString)
+    log.Debug("requst's header: ", r.Header)
 
     if r.Method != http.MethodPost {
         log.WithFields(log.Fields{
             "method": r.Method,
-            }).Warn("the request method is not expected")
+        }).Error("the method of request is not expected")
         w.WriteHeader(http.StatusBadRequest)
         fmt.Fprint(w, "please POST method")
-        return
-    }
-
-    rSeverity := r.Header.Get("Severity")
-    log.WithFields(log.Fields{
-        "Severity": rSeverity,
-        }).Debug("get the Severity from the requset header")
-
-    rStatus := r.Header.Get("Status")
-    log.WithFields(log.Fields{
-        "Status": rStatus,
-        }).Debug("get the Status from request header")
-
-    if _, ok := MainIgnoreStatus[rStatus]; ok {
-        for _, ignoreStatu := range MainIgnoreStatus[rStatus] {
-            if ignoreStatu == rSeverity {
-                log.Info("the Severity and Status should be ignored, ignore it")
-                return 
-            }
-        }
-    }
-
-    unit, ok := unitMap[rSeverity]
-    if !ok {
-        log.Warn("the header of request has no hit Severity field, so use the default")
-        rSeverity = "_default"
-        unit, ok = unitMap[rSeverity]
-        if !ok {
-            log.Error("cannot use the defualt for the severity")
-            w.WriteHeader(http.StatusBadRequest)
-            fmt.Fprint(w, "cannot use the defualt for the severity")
-            return
-        }
-    }
-
-    rRemote := r.Header.Get("Remote")
-    log.WithFields(log.Fields{
-        "Remote": rRemote,
-        }).Debug("get the Remote from request header")
-
-    if rRemote == "" {
-        log.Warn("the header of request has not Remote field")
-        w.WriteHeader(http.StatusBadRequest)
-        fmt.Fprint(w, "not found the Remote")
         return 
     }
 
-    newHeader := make(map[string][]string)
-    for k, v := range r.Header {
-        if k == "Severity" || k == "Remote" || k == "Status" {
-            continue
+    rRemote = r.Header.Get(config.InnerRemoteAddrField)
+    if len(rRemote) == 0 {
+        err = errors.New("not found InnerRemoteAddrField in the header")
+        log.Error(err)
+        w.WriteHeader(http.StatusBadRequest)
+        fmt.Fprint(w, err)
+        return 
+    }
+    rHeader, err = achttp.RepairHeader(r.Header, config.RelayIgnoreHeaderFields)
+    if err != nil {
+        log.Error("get an err when repair header: ", err)
+        log.Warn("using the raw http header")
+        rHeader = r.Header
+    }
+
+    formatFlag := r.Header.Get(config.FormatRegexpHeaderField)
+    log.Debugf("get format flag: %s", formatFlag)
+    switch formatFlag {
+    case config.FormatRegexpOkHeader:
+        bodyMap, err = utils.RegexpDealContent(bodyString, config.FormatRegexpOkCompile)
+    case config.FormatRegexpProblemHeader:
+        bodyMap, err = utils.RegexpDealContent(bodyString, config.FormatRegexpProblemCompile)
+    default:
+        err = errors.New("not suppot the format flag")
+    }
+    if err != nil {
+        log.Error("cannot format the body string to map: ", err)
+        log.Warn("so through send it")
+        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyString)
+        if err != nil {
+            log.Error("get an err when send http request: ", err)
+        } else {
+            log.Debugf("get the response from %s: %s", rRemote, rRsp)
         }
-        newHeader[k] = v
+        return 
+    } else {
+        log.Debug("deal with body string for conving map")
     }
-    newHeader[MainFingerPrintKey] = []string{MainFingerPrintValue}
-    log.Debug("newHeader is done")
-
-    unitStatus := unit.LimitIncrease()
-
-    switch unitStatus {
-        case LUStatusNotLimit:
-            log.Debug("unit is available")
-            var newBody io.ReadCloser
-            if rStatus != "" {
-                newBody, _ = regexpDeal(rStatus, r.Body)
-            } else {
-                newBody = r.Body
-            }
-            err := relayPass(rRemote, newHeader, newBody)
-            if err != nil {
-                log.WithFields(log.Fields{
-                    "error": err,
-                    }).Error("get error when call relayPass")
-                w.WriteHeader(http.StatusInternalServerError)
-                fmt.Fprint(w, "get error when call relayPass")
-                return
-            }
-            return
-
-        case LUStatusInIU:
-            log.Debug("the unit had been limited, check for cutoff")
-            log.Debug("still in inhibition")
-            reportDBInsert(ReportDB, ReportTable, rStatus, r.Body)
-            return
-
-        case LUStatusCreateIU:
-            log.Debug("start to create a IU")
-            dataCurrent := map[string]interface{}{
-                "EventType": map[string]string{
-                    "EventType": RelayInhibitionEventType,
-                },
-                "EventID": RelayInhibitionEventID,
-                "Severity": rSeverity,
-                "Status": RelayInhibitionStatus,
-                "HostName": RelayInhibitionHostName,
-                "HostIP": RelayInhibitionHostIP,
-                "EventTime": time.Now().Format("2006-01-02 15:04:05"),
-                "EventItem": RelayInhibitionEventItem,
-                "Channel": RelayInhibitionChannel,
-            }
-            dataDelay := map[string]interface{}{
-                "Details": func() string {
-                        log.Debug("the unit.Inhibition.Count: ", unit.Inhibition.Count)
-                        return fmt.Sprintf("触发告警抑制，此次对[%s]级别告警抑制了[%d]条", unit.Name, unit.Inhibition.Count)
-                    },
-            }
-            _ = unit.InhibitionCreate(
-                relayDelay,
-                rRemote,
-                newHeader,
-                dataCurrent,
-                dataDelay,
-                )
-            log.Debug("finish born a inhibition")
-            reportDBInsert(ReportDB, ReportTable, rStatus, r.Body)
-            return
-        default:
-            log.WithFields(log.Fields{
-                "name": unit.Name,
-                "status": unitStatus,
-                }).Error("unknow status")
-            return
+    if len(bodyMap) == 0 {
+        log.Error("after format body to map, the length of result is zero")
+        log.Warn("so through send it")
+        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyString)
+        if err != nil {
+            log.Error("get an err when send http request: ", err)
+        } else {
+            log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        }
+        return
     }
 
-    log.Warn("maybe some error")
-}
+    if yes, _ := config.IgnoreUnit.IsIgnore(bodyMap); yes {
+        log.Info("mean the ignore unit, ignore the request")
+        return 
+    }
 
-func init() {
-    initLog(ProgramInitLogLevel)
-
-    err := initFlag()
+    // conv the inner tag from string to map[string]string
+    bodyMap, err = utils.RegexpDealTag(bodyMap, config.TagconvCompiles)
     if err != nil {
-        log.Fatal("get error when init flag: ", err)
+        log.Error("get an err when conv tag for body map: ", err)
     }
 
-    cfg, err := configParse(ConfigPath)
+    lUnit, err := config.LimitGroup.MatchOne(bodyMap)
     if err != nil {
-        log.Fatal("get error when parse config: ", err)
+        log.Error("get an err when matach one limit unit from limit group: ", err)
+        log.Warn("so through send it")
+        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        if err != nil {
+            log.Error("get an err when send http request: ", err)
+        }
+        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        return 
     }
-    log.Debug("finish to load config from ", ConfigPath)
 
-    _ = initRegexp()
-
-    err = initUnitMap(cfg)
-    if err != nil {
-        log.Fatal("get error when init unitmap: ", err)
+    dataCurrent := map[string]interface{} {
+        "EventType": map[string]string{
+            "EventType": config.RelayInhibitionEventType,
+        },
+        "EventID": config.RelayInhibitionEventID,
+        "Severity": r.Header.Get(config.InnerHeaderSeverityField),
+        "Status": config.RelayInhibitionStatus,
+        "HostName": config.RelayInhibitionHostName,
+        "HostIP": config.RelayInhibitionHostIP,
+        "EventTime": time.Now().Format("2006-01-02 15:04:05"),
+        "EventItem": config.RelayInhibitionEventItem,
+        "Channel": config.RelayInhibitionChannel,
+    }
+    dataDelay := map[string]interface{} {
+        "Severity": lUnit.GetSeverity,
+        "Details": func() string {
+            lName := lUnit.GetName()
+            iCount := lUnit.InhibitUnit.Count
+            log.Debugf("the limitUnit %s inhibit's count is %d", lName, iCount)
+            return fmt.Sprintf("[%s]规则触发抑制，此次抑制了[%d]条", lName, iCount)
+        },
     }
 
-    err = initReportDB()
+    lUnitState, err := lUnit.Increase(
+        achttp.SendDelayMap,
+        rRemote,
+        rHeader,
+        dataCurrent,
+        dataDelay,
+    )
     if err != nil {
-        log.Fatal("get error when init reportDB: ", err)
+        log.Errorf("get an err when increase the limit unit %s: %s", lUnit.GetName(), err)
+        log.Warn("so through send it")
+        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        if err != nil {
+            log.Error("get an err when send http request: ", err)
+        }
+        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        return 
+    }
+
+    switch lUnitState {
+    case limit.LimitStateFree:
+        log.Debugf("limit unit %s is free now", lUnit.GetName())
+        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        if err != nil {
+            log.Error("get an err when send http request: ", err)
+        }
+        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        return 
+    case limit.LimitStateWork:
+        log.Infof("limit unit %s had been limited", lUnit.GetName())
+        err = reportDBInsert(config.ReportDB, config.ReportTableName, bodyMap)
+        if err != nil {
+            log.Error("get an err when insert to report db: ", err)
+        }
+        return 
+    case limit.LimitStateBorn:
+        log.Infof("creating an inhibit on %s", lUnit.GetName())
+        err = reportDBInsert(config.ReportDB, config.ReportTableName, bodyMap)
+        if err != nil {
+            log.Error("get an err when insert to report db: ", err)
+        }
+        return 
+    default:
+        err = fmt.Errorf("unknow limit unit state %d from limit unit %s", lUnitState, lUnit.GetName())
+        log.Error(err)
+        w.WriteHeader(http.StatusBadRequest)
+        fmt.Fprint(w, err)
+        return 
     }
 }
 
 func main() {
-    log.Printf("zabbix-robot written by AcidGo, the version is %s", ProgramVersion)
-    log.Println("the zabbix-robot is runnig ......")
-    http.HandleFunc(MainURL, alertHandler)
-    http.ListenAndServe(MainListen, nil)
-    ReportDB.Close()
+    log.Printf("%s written by %s, the version is %s", config.AppName, config.AppAuthor, config.AppVersion)
+    http.HandleFunc(config.HttpURL, mainHandler)
+    err := http.ListenAndServe(config.HttpListenPort, nil)
+    if err != nil {
+        log.Error(err)
+    }
+    purgeEnv()
 }

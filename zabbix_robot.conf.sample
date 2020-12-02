@@ -41,7 +41,7 @@ expression = ^.*检查2端口.*$
 severity = LEVEL3
 weight = 3
 field = EventItem
-expression = ^.*检查5端口.*$
+expression = ^.*检查3端口.*$
 
 [role.EventItem4]
 severity = LEVEL4
