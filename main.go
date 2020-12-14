@@ -502,6 +502,10 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
             return fmt.Sprintf("[%s]规则触发抑制，此次抑制了[%d]条", lName, iCount)
         },
     }
+    tagRewriteMap := lUnit.GetTagRewriteMap()
+    if len(tagRewriteMap) > 0 {
+        dataDelay["EventType"] = tagRewriteMap
+    }
 
     lUnitState, err := lUnit.Increase(
         achttp.SendDelayMap,

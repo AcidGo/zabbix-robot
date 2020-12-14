@@ -1,6 +1,7 @@
 package limit
 
 import (
+    "encoding/json"
     "errors"
     "fmt"
     "reflect"
@@ -26,15 +27,17 @@ const (
 type LimitState int
 
 type LimitRole struct {
-    Severity                string          `ini:"severity,required"`
-    Weight                  int             `ini:"weight,min=0,max=100"`
-    LimitInterval           int             `ini:"limit_interval,min=1,required"`
-    LimitThreshold          int             `ini:"limit_threshold,min=1,required"`
-    InhibitInterval         int             `ini:"inhibit_interval,min=1,required"`
-    InhibitThreshold        int             `ini:"inhibit_threshold,min=1,required"`
-    Field                   string          `ini:"field,string,required"`
-    Expression              string          `ini:"expression,string,required"`
-    reCompile               *regexp.Regexp  `ini:"-"`
+    Severity                string              `ini:"severity,required"`
+    Weight                  int                 `ini:"weight,min=0,max=100"`
+    LimitInterval           int                 `ini:"limit_interval,min=1,required"`
+    LimitThreshold          int                 `ini:"limit_threshold,min=1,required"`
+    InhibitInterval         int                 `ini:"inhibit_interval,min=1,required"`
+    InhibitThreshold        int                 `ini:"inhibit_threshold,min=1,required"`
+    Field                   string              `ini:"field,string,required"`
+    Expression              string              `ini:"expression,string,required"`
+    TagRewrite              string              `ini:"tag_rewrite"`
+    reCompile               *regexp.Regexp      `ini:"-"`
+    tagRewriteMap           map[string]string   `ini:"-"`
 }
 
 type Limiter interface {
@@ -79,6 +82,15 @@ func (lUnit *LimitUnit) setRole(lRole *LimitRole) error {
     lUnit.inhibitInterval = time.Duration(lRole.InhibitInterval)*time.Second
     lUnit.inhibitThreshold = lRole.InhibitThreshold
 
+    if lRole.TagRewrite != "" {
+        err = json.Unmarshal([]byte(lRole.TagRewrite), &lRole.tagRewriteMap)
+    } else {
+        lRole.tagRewriteMap = make(map[string]string, 0)
+    }
+    if err != nil {
+        return err
+    }
+
     lRole.reCompile, err = regexp.Compile(lRole.Expression)
     if err != nil {
         return err
@@ -107,6 +119,10 @@ func (lUnit *LimitUnit) GetName() string {
 
 func (lUnit *LimitUnit) GetSeverity() string {
     return lUnit.role.Severity
+}
+
+func (lUnit *LimitUnit) GetTagRewriteMap() map[string]string {
+    return lUnit.role.tagRewriteMap
 }
 
 func (lUnit *LimitUnit) Match(data map[string]interface{}) (bool, error) {
