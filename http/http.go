@@ -7,6 +7,7 @@ import (
     "reflect"
     "strings"
 
+    "github.com/AcidGo/zabbix-robot/state"
     "github.com/AcidGo/zabbix-robot/utils"
 )
 
@@ -30,10 +31,10 @@ func sendThroughString(remote string, header map[string][]string, s string) (str
     return res, nil
 }
 
-func sendThroughMap(remote string, header map[string][]string, m map[string]interface{}) (string, error) {
+func sendThroughMap(remote string, header map[string][]string, m map[string]interface{}) (string, int, error) {
     data, err := json.Marshal(m)
     if err != nil {
-        return "", err
+        return "", nil, err
     }
 
     body, length, err := utils.BytesToBody(data)
@@ -59,7 +60,7 @@ func sendThroughMap(remote string, header map[string][]string, m map[string]inte
     return res, nil
 }
 
-func SendThrough(remote string, header map[string][]string, data interface{}) (string, error) {
+func SendThrough(remote string, header map[string][]string, data interface{}, s *state.SvrStater) (string, error) {
     var err error
     var res string
     switch data.(type) {

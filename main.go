@@ -16,6 +16,7 @@ import (
     achttp "github.com/AcidGo/zabbix-robot/http"
     "github.com/AcidGo/zabbix-robot/ignore"
     "github.com/AcidGo/zabbix-robot/limit"
+    "github.com/AcidGO/zabbix-robot/state"
     "github.com/AcidGo/zabbix-robot/utils"
 
     "gopkg.in/ini.v1"
@@ -35,6 +36,7 @@ var (
     AppBuildTime                        string
     AppGoVersion                        string
 )
+
 
 func init() {
     var err error
@@ -92,6 +94,13 @@ func init() {
         log.Error("get err when init reportor: ", err)
     } else {
         log.Debug("finished to init report channel by config")
+    }
+
+    err = initServerState()
+    if err != nil {
+        log.Error("get err when init server state: ", err)
+    } else {
+        log.Debug("finished to init server state")
     }
 }
 
@@ -260,6 +269,14 @@ func initReport() error {
     return nil
 }
 
+func initServerState() error {
+    if state.SState == nil {
+        return errors.New("the server state is nil")
+    }
+    err := state.SState.Reset()
+    return err
+}
+
 func flagUsage() {
     usageMsg := fmt.Sprintf(`%s
 Version: %s
@@ -382,6 +399,11 @@ func purgeEnv() {
     log.Info("finished purge the app env")
 }
 
+func stateHandler(w http.ResponseWriter, r *http.Request) {
+    var err error
+
+}
+
 func mainHandler(w http.ResponseWriter, r *http.Request) {
     var err error
     var bodyString string
@@ -391,6 +413,10 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     var rRsp string
 
     log.Debug("get a new accessing request")
+    if err = state.SState.IncreaseState(state.RequestSum); err != nil {
+        log.Errorf("get an err when increase %s state: %s", state.RequestSum, err)
+    }
+
     bodyString, _, err = utils.BodyToString(r.Body)
     if err != nil {
         log.Error("get an err when conv the request body to string: ", err)
@@ -422,6 +448,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
         rHeader = r.Header
     }
 
+    err = nil
     formatFlag := r.Header.Get(config.FormatRegexpHeaderField)
     log.Debugf("get format flag: %s", formatFlag)
     switch formatFlag {
@@ -435,6 +462,9 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Error("cannot format the body string to map: ", err)
         log.Warn("so through send it")
+        if err := state.SState.IncreaseState(state.ContentDealFailed); err != nil {
+            log.Errorf("get an err when increase %s state: %s", state.ContentDealFailed, err)
+        }
         rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyString)
         if err != nil {
             log.Error("get an err when send http request: ", err)
