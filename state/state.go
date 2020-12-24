@@ -9,10 +9,11 @@ const (
     RequestSum          = "request_sum"
     ContentDealFailed   = "content_deal_failed"
     TagDealFailed       = "tag_deal_failed"
+    ResponseFailed      ="response_failed"
 )
 
 var (
-    SState := newSvrState()
+    SState = newSvrState()
 )
 
 type SvrStater interface {
@@ -26,6 +27,7 @@ type SvrState struct {
     numRequestSum           int
     numContentDealFailed    int
     numTagDealFailed        int
+    numResponseFailed       int
 }
 
 func newSvrState() *SvrState {
@@ -51,6 +53,7 @@ func (ss *SvrState) GetState() map[string]int {
         RequestSum:         ss.numRequestSum,
         ContentDealFailed:  ss.numContentDealFailed,
         TagDealFailed:      ss.numTagDealFailed,
+        ResponseFailed:     ss.numResponseFailed,
     }
 }
 
@@ -67,6 +70,8 @@ func (ss *SvrState) IncreaseState(k string) error {
         ss.numContentDealFailed += 1
     case TagDealFailed:
         ss.numTagDealFailed += 1
+    case ResponseFailed:
+        ss.numResponseFailed += 1
     default:
         err = fmt.Errorf("not mean supported state on server: %s", k)
     }

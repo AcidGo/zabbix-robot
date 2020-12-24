@@ -16,7 +16,7 @@ import (
     achttp "github.com/AcidGo/zabbix-robot/http"
     "github.com/AcidGo/zabbix-robot/ignore"
     "github.com/AcidGo/zabbix-robot/limit"
-    "github.com/AcidGO/zabbix-robot/state"
+    "github.com/AcidGo/zabbix-robot/state"
     "github.com/AcidGo/zabbix-robot/utils"
 
     "gopkg.in/ini.v1"
@@ -400,8 +400,12 @@ func purgeEnv() {
 }
 
 func stateHandler(w http.ResponseWriter, r *http.Request) {
+    const (
+        URLSTATE = "state"
+    )
     var err error
 
+    log.Debug("get a new stat request")
 }
 
 func mainHandler(w http.ResponseWriter, r *http.Request) {
@@ -411,6 +415,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     var rRemote string
     var rHeader map[string][]string
     var rRsp string
+    var StatusCode int
 
     log.Debug("get a new accessing request")
     if err = state.SState.IncreaseState(state.RequestSum); err != nil {
@@ -465,11 +470,19 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
         if err := state.SState.IncreaseState(state.ContentDealFailed); err != nil {
             log.Errorf("get an err when increase %s state: %s", state.ContentDealFailed, err)
         }
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyString)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyString)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
         } else {
-            log.Debugf("get the response from %s: %s", rRemote, rRsp)
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
         return 
     } else {
@@ -478,11 +491,19 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if len(bodyMap) == 0 {
         log.Error("after format body to map, the length of result is zero")
         log.Warn("so through send it")
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyString)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyString)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
         } else {
-            log.Debugf("get the response from %s: %s", rRemote, rRsp)
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
         return
     }
@@ -502,11 +523,19 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Error("get an err when matach one limit unit from limit group: ", err)
         log.Warn("so through send it")
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
         }
-        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+        if StatusCode != 200 {
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
+        }
         return 
     }
 
@@ -547,22 +576,44 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Errorf("get an err when increase the limit unit %s: %s", lUnit.GetName(), err)
         log.Warn("so through send it")
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err != nil {
+                log.Error("get an err when send http request: ", err)
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
-        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+        if StatusCode != 200 {
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
+        }
         return 
     }
 
     switch lUnitState {
     case limit.LimitStateFree:
         log.Debugf("limit unit %s is free now", lUnit.GetName())
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err != nil {
+                log.Error("get an err when send http request: ", err)
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
-        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+        if StatusCode != 200 {
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
+        }
         return 
     case limit.LimitStateWork:
         log.Infof("limit unit %s had been limited", lUnit.GetName())
