@@ -537,13 +537,15 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
             if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
                 log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
             }
-        }
-        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
-        if StatusCode != 200 {
-            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
-                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+        } else {
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
             }
         }
+        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+
         return 
     }
 
@@ -593,13 +595,14 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
                     log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
                 }
             }
-        }
-        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
-        if StatusCode != 200 {
-            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
-                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+        } else {
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
             }
         }
+        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
         return 
     }
 
@@ -615,13 +618,15 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
                     log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
                 }
             }
-        }
-        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
-        if StatusCode != 200 {
-            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
-                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+        } else {
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
             }
         }
+        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+
         return 
     case limit.LimitStateWork:
         log.Infof("limit unit %s had been limited", lUnit.GetName())
