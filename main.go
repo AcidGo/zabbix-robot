@@ -589,11 +589,8 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
         rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
-            if err != nil {
-                log.Error("get an err when send http request: ", err)
-                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
-                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
-                }
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
             }
         } else {
             if StatusCode != 200 {
@@ -612,11 +609,8 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
         rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
-            if err != nil {
-                log.Error("get an err when send http request: ", err)
-                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
-                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
-                }
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
             }
         } else {
             if StatusCode != 200 {
