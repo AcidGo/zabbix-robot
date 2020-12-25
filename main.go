@@ -400,12 +400,20 @@ func purgeEnv() {
 }
 
 func stateHandler(w http.ResponseWriter, r *http.Request) {
-    const (
-        URLSTATE = "state"
-    )
     var err error
+    var jData []byte
 
+    data := state.SState.GetState()
     log.Debug("get a new stat request")
+    jData, err = json.Marshal(data)
+    if err != nil {
+        log.Error("get an err when deal with json for state:", err)
+        w.WriteHeader(http.StatusBadRequest)
+        fmt.Fprintf(w, err.Error())
+        return 
+    }
+    w.Header().Set("Content-Type", "application/json")
+    w.Write(jData)
 }
 
 func mainHandler(w http.ResponseWriter, r *http.Request) {
@@ -641,6 +649,8 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
     log.Printf("%s written by %s, the version is %s", AppName, AppAuthor, AppVersion)
     http.HandleFunc(config.HttpURL, mainHandler)
+    // hard-code for the state check route
+    http.HandleFunc("/state", stateHandler)
     err := http.ListenAndServe(config.HttpListenPort, nil)
     if err != nil {
         log.Error(err)
