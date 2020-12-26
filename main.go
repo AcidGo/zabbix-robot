@@ -173,21 +173,20 @@ func initConfigParse() error {
 
 func initIgnore() error {
     var err error
-    var t map[string][]string
-
-    err = json.Unmarshal([]byte(config.AppIniFile.Section(config.ConfigSectionIgnore).Key(config.ConfigIgnoreKeySetting).String()), &t)
-    if err != nil {
-        return err
-    }
 
     config.IgnoreUnit = ignore.NewIgnoreUnit()
-    for k, v := range t {
-        iRole := ignore.IgnoreRole{Key: k, Val: v}
+    for _, subSection := range config.AppIniFile.ChildSections(config.ConfigSectionIgnore) {
+        var t map[string][]string
+        err = json.Unmarshal([]byte(subSection.Key(config.ConfigIgnoreKeySetting).String()), &t)
+        if err != nil {
+            return err
+        }
+        iRole := ignore.IgnoreRole{Key: subSection.Name(), Val: t}
         err = config.IgnoreUnit.AddRole(iRole)
         if err != nil {
             return err
         }
-        log.Infof("added role for ignore %s: %v", k, v)
+        log.Infof("added ignore role for %s: %v", iRole.Key, iRole.Val)
     }
 
     return nil
@@ -516,8 +515,8 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    if yes, _ := config.IgnoreUnit.IsIgnore(bodyMap); yes {
-        log.Info("mean the ignore unit, ignore the request")
+    if yes, iRoleName, _ := config.IgnoreUnit.IsIgnore(bodyMap); yes {
+        log.Infof("mean the ignore unit for ignoring the request, with role %s", iRoleName)
         return 
     }
 
@@ -538,13 +537,13 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
                 log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
             }
         } else {
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
             if StatusCode != 200 {
                 if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
                     log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
                 }
             }
         }
-        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
 
         return 
     }
@@ -593,13 +592,13 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
                 log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
             }
         } else {
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
             if StatusCode != 200 {
                 if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
                     log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
                 }
             }
         }
-        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
         return 
     }
 

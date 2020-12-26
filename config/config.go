@@ -37,7 +37,7 @@ const(
     ConfigSectionTagconv = "tagconv"
 
     ConfigSectionIgnore = "ignore"
-    ConfigIgnoreKeySetting = "ignore_setting"
+    ConfigIgnoreKeySetting = "role"
 
     ConfigSectionRole = "role"
     ConfigRoleKeyWeight                 = "weight"
