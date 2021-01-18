@@ -1,80 +1,48 @@
 package state
 
 import (
-    "fmt"
-    "sync"
+    "github.com/AcidGo/zabbix-robot/transf/transfer"
 )
+
+type StateType uint
 
 const (
-    RequestSum          = "request_sum"
-    ContentDealFailed   = "content_deal_failed"
-    TagDealFailed       = "tag_deal_failed"
-    ResponseFailed      ="response_failed"
+    // unknown state
+    Unknown StateType = iota
+    // finish flow task sucessfully
+    Sucess
+    // some errors
+    FlowBeginError
+    CookError
+    PrunError
+    FiltError
+    ClassifyError
+    LimitError
+    FlowEndError
 )
 
-var (
-    SState = newSvrState()
-)
-
-type SvrStater interface {
-    Reset() error
-    GetState() map[string]int
-    IncreaseState(string) error
+type State struct {
+    stateCnt        map[StateType]int
+    ch              chan transf.Transfer
 }
 
-type SvrState struct {
-    sync.RWMutex
-    numRequestSum           int
-    numContentDealFailed    int
-    numTagDealFailed        int
-    numResponseFailed       int
+func NewState(ops *Options) (*State, error) {
+    return &State{
+        stateCnt:   make(map[StateType]int),
+        ch:         make(chan transf.Transfer, ops.StateChanBufSize),
+    }, nil
 }
 
-func newSvrState() *SvrState {
-    return &SvrState{}
+func (s *State) StateCh() (chan<- transf.Transfer) {
+    return s.ch
 }
 
-func (ss *SvrState) Reset() error {
-    ss.Lock()
-    defer ss.Unlock()
-
-    ss.numRequestSum = 0
-    ss.numContentDealFailed = 0
-    ss.numTagDealFailed = 0
+func (s *State) Run() (error) {
+    go func {
+        for t := range s.ch {
+            s.stateCnt[t.GetState()]++
+        }
+    }()
 
     return nil
-}
-
-func (ss *SvrState) GetState() map[string]int {
-    ss.RLock()
-    defer ss.RUnlock()
-
-    return map[string]int{
-        RequestSum:         ss.numRequestSum,
-        ContentDealFailed:  ss.numContentDealFailed,
-        TagDealFailed:      ss.numTagDealFailed,
-        ResponseFailed:     ss.numResponseFailed,
-    }
-}
-
-func (ss *SvrState) IncreaseState(k string) error {
-    var err error
-
-    ss.Lock()
-    defer ss.Unlock()
-
-    switch k {
-    case RequestSum:
-        ss.numRequestSum += 1
-    case ContentDealFailed:
-        ss.numContentDealFailed += 1
-    case TagDealFailed:
-        ss.numTagDealFailed += 1
-    case ResponseFailed:
-        ss.numResponseFailed += 1
-    default:
-        err = fmt.Errorf("not mean supported state on server: %s", k)
-    }
-
-    return err
 }

@@ -1,3 +1,2 @@
-bin
-tmp
-zabbix_robot.conf
+/bin
+/tmp
