@@ -16,6 +16,7 @@ import (
     achttp "github.com/AcidGo/zabbix-robot/http"
     "github.com/AcidGo/zabbix-robot/ignore"
     "github.com/AcidGo/zabbix-robot/limit"
+    "github.com/AcidGo/zabbix-robot/state"
     "github.com/AcidGo/zabbix-robot/utils"
 
     "gopkg.in/ini.v1"
@@ -35,6 +36,7 @@ var (
     AppBuildTime                        string
     AppGoVersion                        string
 )
+
 
 func init() {
     var err error
@@ -92,6 +94,13 @@ func init() {
         log.Error("get err when init reportor: ", err)
     } else {
         log.Debug("finished to init report channel by config")
+    }
+
+    err = initServerState()
+    if err != nil {
+        log.Error("get err when init server state: ", err)
+    } else {
+        log.Debug("finished to init server state")
     }
 }
 
@@ -164,21 +173,20 @@ func initConfigParse() error {
 
 func initIgnore() error {
     var err error
-    var t map[string][]string
-
-    err = json.Unmarshal([]byte(config.AppIniFile.Section(config.ConfigSectionIgnore).Key(config.ConfigIgnoreKeySetting).String()), &t)
-    if err != nil {
-        return err
-    }
 
     config.IgnoreUnit = ignore.NewIgnoreUnit()
-    for k, v := range t {
-        iRole := ignore.IgnoreRole{Key: k, Val: v}
+    for _, subSection := range config.AppIniFile.ChildSections(config.ConfigSectionIgnore) {
+        var t map[string][]string
+        err = json.Unmarshal([]byte(subSection.Key(config.ConfigIgnoreKeySetting).String()), &t)
+        if err != nil {
+            return err
+        }
+        iRole := ignore.IgnoreRole{Key: subSection.Name(), Val: t}
         err = config.IgnoreUnit.AddRole(iRole)
         if err != nil {
             return err
         }
-        log.Infof("added role for ignore %s: %v", k, v)
+        log.Infof("added ignore role for %s: %v", iRole.Key, iRole.Val)
     }
 
     return nil
@@ -258,6 +266,14 @@ func initReport() error {
         return err
     }
     return nil
+}
+
+func initServerState() error {
+    if state.SState == nil {
+        return errors.New("the server state is nil")
+    }
+    err := state.SState.Reset()
+    return err
 }
 
 func flagUsage() {
@@ -382,6 +398,23 @@ func purgeEnv() {
     log.Info("finished purge the app env")
 }
 
+func stateHandler(w http.ResponseWriter, r *http.Request) {
+    var err error
+    var jData []byte
+
+    data := state.SState.GetState()
+    log.Debug("get a new stat request")
+    jData, err = json.Marshal(data)
+    if err != nil {
+        log.Error("get an err when deal with json for state:", err)
+        w.WriteHeader(http.StatusBadRequest)
+        fmt.Fprintf(w, err.Error())
+        return 
+    }
+    w.Header().Set("Content-Type", "application/json")
+    w.Write(jData)
+}
+
 func mainHandler(w http.ResponseWriter, r *http.Request) {
     var err error
     var bodyString string
@@ -389,8 +422,13 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     var rRemote string
     var rHeader map[string][]string
     var rRsp string
+    var StatusCode int
 
     log.Debug("get a new accessing request")
+    if err = state.SState.IncreaseState(state.RequestSum); err != nil {
+        log.Errorf("get an err when increase %s state: %s", state.RequestSum, err)
+    }
+
     bodyString, _, err = utils.BodyToString(r.Body)
     if err != nil {
         log.Error("get an err when conv the request body to string: ", err)
@@ -422,6 +460,7 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
         rHeader = r.Header
     }
 
+    err = nil
     formatFlag := r.Header.Get(config.FormatRegexpHeaderField)
     log.Debugf("get format flag: %s", formatFlag)
     switch formatFlag {
@@ -435,11 +474,22 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Error("cannot format the body string to map: ", err)
         log.Warn("so through send it")
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyString)
+        if err := state.SState.IncreaseState(state.ContentDealFailed); err != nil {
+            log.Errorf("get an err when increase %s state: %s", state.ContentDealFailed, err)
+        }
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyString)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
         } else {
-            log.Debugf("get the response from %s: %s", rRemote, rRsp)
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
         return 
     } else {
@@ -448,17 +498,25 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if len(bodyMap) == 0 {
         log.Error("after format body to map, the length of result is zero")
         log.Warn("so through send it")
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyString)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyString)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
         } else {
-            log.Debugf("get the response from %s: %s", rRemote, rRsp)
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
         return
     }
 
-    if yes, _ := config.IgnoreUnit.IsIgnore(bodyMap); yes {
-        log.Info("mean the ignore unit, ignore the request")
+    if yes, iRoleName, _ := config.IgnoreUnit.IsIgnore(bodyMap); yes {
+        log.Infof("mean the ignore unit for ignoring the request, with role %s", iRoleName)
         return 
     }
 
@@ -472,11 +530,21 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Error("get an err when matach one limit unit from limit group: ", err)
         log.Warn("so through send it")
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
+        } else {
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
-        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+
         return 
     }
 
@@ -517,22 +585,41 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Errorf("get an err when increase the limit unit %s: %s", lUnit.GetName(), err)
         log.Warn("so through send it")
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
+        } else {
+            log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
-        log.Debugf("get the response from %s: %s", rRemote, rRsp)
         return 
     }
 
     switch lUnitState {
     case limit.LimitStateFree:
         log.Debugf("limit unit %s is free now", lUnit.GetName())
-        rRsp, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
+        rRsp, StatusCode, err = achttp.SendThrough(rRemote, rHeader, bodyMap)
         if err != nil {
             log.Error("get an err when send http request: ", err)
+            if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+            }
+        } else {
+            if StatusCode != 200 {
+                if err := state.SState.IncreaseState(state.ResponseFailed); err != nil {
+                    log.Errorf("get an err when increase %s state: %s", state.ResponseFailed, err)
+                }
+            }
         }
-        log.Debugf("get the response from %s: %s", rRemote, rRsp)
+        log.Debugf("get the response [%d] from %s: %s", StatusCode, rRemote, rRsp)
+
         return 
     case limit.LimitStateWork:
         log.Infof("limit unit %s had been limited", lUnit.GetName())
@@ -560,6 +647,8 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 func main() {
     log.Printf("%s written by %s, the version is %s", AppName, AppAuthor, AppVersion)
     http.HandleFunc(config.HttpURL, mainHandler)
+    // hard-code for the state check route
+    http.HandleFunc("/state", stateHandler)
     err := http.ListenAndServe(config.HttpListenPort, nil)
     if err != nil {
         log.Error(err)

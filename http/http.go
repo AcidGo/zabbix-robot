@@ -10,12 +10,12 @@ import (
     "github.com/AcidGo/zabbix-robot/utils"
 )
 
-func sendThroughString(remote string, header map[string][]string, s string) (string, error) {
+func sendThroughString(remote string, header map[string][]string, s string) (string, int, error) {
     body, length, _ := utils.StringToBody(s)
     client := &http.Client{}
     req, err := http.NewRequest("POST", remote, nil)
     if err != nil {
-        return "", err
+        return "", 0, err
     }
 
     req.Header = header
@@ -23,28 +23,28 @@ func sendThroughString(remote string, header map[string][]string, s string) (str
     req.ContentLength = length
     rsp, err := client.Do(req)
     if err != nil {
-        return "", err
+        return "", 0, err
     }
 
     res, _, _ := utils.BodyToString(rsp.Body)
-    return res, nil
+    return res, rsp.StatusCode, nil
 }
 
-func sendThroughMap(remote string, header map[string][]string, m map[string]interface{}) (string, error) {
+func sendThroughMap(remote string, header map[string][]string, m map[string]interface{}) (string, int, error) {
     data, err := json.Marshal(m)
     if err != nil {
-        return "", err
+        return "", 0, err
     }
 
     body, length, err := utils.BytesToBody(data)
     if err != nil {
-        return "", err
+        return "", 0, err
     }
 
     client := &http.Client{}
     req, err := http.NewRequest("POST", remote, nil)
     if err != nil {
-        return "", err
+        return "", 0, err
     }
 
     req.Header = header
@@ -52,26 +52,27 @@ func sendThroughMap(remote string, header map[string][]string, m map[string]inte
     req.ContentLength = length
     rsp, err := client.Do(req)
     if err != nil {
-        return "", err
+        return "", 0, err
     }
 
     res, _, _ := utils.BodyToString(rsp.Body)
-    return res, nil
+    return res, rsp.StatusCode, nil
 }
 
-func SendThrough(remote string, header map[string][]string, data interface{}) (string, error) {
+func SendThrough(remote string, header map[string][]string, data interface{}) (string, int, error) {
     var err error
     var res string
+    var statusCode int
     switch data.(type) {
     case string:
-        res, err = sendThroughString(remote, header, data.(string))
+        res, statusCode, err = sendThroughString(remote, header, data.(string))
     case map[string]interface{}:
-        res, err = sendThroughMap(remote, header, data.(map[string]interface{}))
+        res, statusCode, err = sendThroughMap(remote, header, data.(map[string]interface{}))
     default:
         err = fmt.Errorf("not support the send through type: %T", data)
     }
 
-    return res, err
+    return res, statusCode, err
 }
 
 func SendDelayMap(remote string, header map[string][]string, data map[string]interface{}, dataDelay map[string]interface{}) (string, error) {
@@ -93,12 +94,8 @@ func SendDelayMap(remote string, header map[string][]string, data map[string]int
         }
     }
 
-    res, err := sendThroughMap(remote, header, data)
-    if err != nil {
-        return res, err
-    }
-
-    return res, nil
+    res, _, err := sendThroughMap(remote, header, data)
+    return res, err
 }
 
 func RepairHeader(header http.Header, ignoreFileds []string) (http.Header, error) {
