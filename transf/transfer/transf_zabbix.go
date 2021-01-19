@@ -8,7 +8,6 @@ import (
     "github.com/AcidGo/zabbix-robot/common"
     "github.com/AcidGo/zabbix-robot/lib"
     "github.com/AcidGo/zabbix-robot/log"
-    "github.com/AcidGo/zabbix-robot/transf/zabbix"
     "github.com/go-playground/validator/v10"
 )
 
@@ -36,11 +35,7 @@ type TransfZabbix struct {
     tagRe               *regexp.Regexp
 }
 
-func NewTransfZabbix(l *log.Logger, ops transf_zabbix.Options) (*TransfZabbix, error) {
-    r, err := regexp.Compile(ops.TagReStr)
-    if err != nil {
-        return nil, err
-    }
+func NewTransfZabbix(l *log.Logger) (*TransfZabbix, error) {
 
     return &TransfZabbix {
         Transf: Transf {
@@ -51,11 +46,16 @@ func NewTransfZabbix(l *log.Logger, ops transf_zabbix.Options) (*TransfZabbix, e
             sendMod:        common.SendUnknown,
             stateType:      common.StateUnknown,
         },
-        convFlag:   ops.ConvFlag,
         convReMap:  make(map[string]*regexp.Regexp),
-        tagFlag:    ops.TagFlag,
-        tagRe:      r,
     }, nil
+}
+
+func (tz *TransfZabbix) SetConvFlag(cf string) {
+    tz.convFlag = cf
+}
+
+func (tz *TransfZabbix) SetTagFlag(tf string) {
+    tz.tagFlag = tf
 }
 
 func (tz *TransfZabbix) GetSendDst() interface{} {
@@ -119,4 +119,13 @@ func (tz *TransfZabbix) AddConvModel(flagVal, reStr string) (error) {
     tz.convReMap[flagVal] = c
 
     return nil
+}
+
+func (tz *TransfZabbix) SetTagRe(reStr string) (error) {
+    r, err := regexp.Compile(tagRestr)
+    if err != nil {
+        return nil, err
+    }
+
+    tz.tagRe = r
 }

@@ -3,6 +3,8 @@ package msg
 import (
     "io"
     "net/http"
+
+    "github.com/AcidGo/zabbix-robot/transf/zabbix"
 )
 
 type HttpMsg struct {
@@ -18,7 +20,8 @@ func NewHttpMsg(h *http.Response) (*HttpMsg, error) {
 }
 
 func (hm *HttpMsg) ConvToTransfer(l *log.Logger) (transf.Transfer) {
-    
-    NewTransfZabbix()
+    tz, _ := NewTransfZabbix(l)
+    tz.SetRawData(hm.data)
+    tz.SetMeta(hm.header)
+    return tz
 }
-

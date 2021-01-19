@@ -35,6 +35,7 @@ type Transf struct {
     formattedData       interface{}
     executedFlow        []common.FlowStep
     err                 error
+    meta                map[string]interface{}
     sendMod             common.SendMod
     stateType           common.StateType
 }
@@ -66,6 +67,14 @@ func (t *Transf) SetError(e error) {
 
 func (t *Transf) GetError() (error) {
     return t.err
+}
+
+func (t *Transf) SetMeta(m map[string]interface{}) {
+    t.meta = m
+}
+
+func (t *Transf) GetMeta() (map[string]interface{}) {
+    return t.meta
 }
 
 func (t *Transf) SetSendMod(s common.SendMod) {
