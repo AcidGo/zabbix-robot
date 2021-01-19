@@ -6,29 +6,17 @@ import (
     "github.com/AcidGo/zabbix-robot/transf/transfer"
 )
 
-type FlowStep uint
-
-const (
-    Initial FlowStep = iota
-    Error
-    Cooked
-    Pruned
-    Filted
-    Classifed
-    Limited
-)
-
 type Flow struct {
     slotGroup       []slot.Slotor
     ch              chan transf.Transfer
     sendCh          chan<- transf.Transfer
 }
 
-func NewFlow(ops Options) (err error) {
+func NewFlow(ops Options) (*Flow, error) {
     return &Flow{
         slotGroup: make([]slot.Slotor, 0),
-        ch: make(chan<- transf.Transfer, ops.ChanBufSize),
-    }, err
+        ch: make(chan transf.Transfer, ops.ChanBufSize),
+    }, nil
 }
 
 func (f *Flow) AppendSlot(s slot.Slotor) (idx int, err error) {
@@ -43,14 +31,13 @@ func (f *Flow)BindSend(c chan<- transf.Transfer) {
 
 func (f *Flow) Infuse(m msg.Message) {
     t := m.ConvToTransfer()
-    f.inCh <- t
+    f.ch <- t
 }
 
-func (f *Flow) InSlot() (c <-chan transf.Transfer) {
+func (f *Flow) InSlot() (<-chan transf.Transfer) {
     return f.ch
 }
 
-func (f *Flow) Intercept() (c <-chan transf.Transfer) {
-    c = f.outCh
-    return 
+func (f *Flow) Intercept() (<-chan transf.Transfer) {
+    return f.ch
 }

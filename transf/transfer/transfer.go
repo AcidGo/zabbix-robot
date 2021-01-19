@@ -1,9 +1,8 @@
 package transf
 
 import (
-    "github.com/AcidGo/zabbix-robot/flow"
-    "github.com/AcidGo/zabbix-robot/send/sender"
-    "github.com/AcidGo/zabbix-robot/state"
+    "github.com/AcidGo/zabbix-robot/common"
+    "github.com/AcidGo/zabbix-robot/log"
 )
 
 type Transfer interface {
@@ -13,26 +12,27 @@ type Transfer interface {
     FormatData() error
     GetFormattedData() interface{}
     // executing flow function
-    TagFlow(flow.FlowStep)
-    ExecutedFlow() []flow.FlowStep
+    TagFlow(common.FlowStep)
+    ExecutedFlow() []common.FlowStep
     // executing error fucntion
     SetError(error)
     GetError() error
     // executing send function
-    SetSendMod(send.SendMod)
-    GetSendMod() send.SendMod
+    SetSendMod(common.SendMod)
+    GetSendMod() common.SendMod
     // executing state function
-    SetState(state.StateType)
-    GetState() state.StateType
+    SetState(common.StateType)
+    GetState() common.StateType
 }
 
 type Transf struct {
+    Logger              *log.Logger
     rawData             interface{}
     formattedData       interface{}
-    executedFlow        []flow.FlowStep
+    executedFlow        []common.FlowStep
     err                 error
-    sendMod             send.SendMod
-    stateType           state.StateType
+    sendMod             common.SendMod
+    stateType           common.StateType
 }
 
 func (t *Transf) SetRawData(i interface{}) (error) {
@@ -48,34 +48,34 @@ func (t *Transf) GetFormattedData() (interface{}) {
     return t.formattedData
 }
 
-func (t *Transf) TagFlow(f flow.FlowStep) {
+func (t *Transf) TagFlow(f common.FlowStep) {
     t.executedFlow = append(t.executedFlow, f)
 }
 
-func (t *Transf) ExecutedFlow() ([]flow.FlowStep) {
+func (t *Transf) ExecutedFlow() ([]common.FlowStep) {
     return t.executedFlow
 }
 
 func (t *Transf) SetError(e error) {
-    t.err = error
+    t.err = e
 }
 
 func (t *Transf) GetError() (error) {
     return t.err
 }
 
-func (t *Transf) SetSendMod(s send.SendMod) {
+func (t *Transf) SetSendMod(s common.SendMod) {
     t.sendMod = s
 }
 
-func (t *Transf) GetState() (send.SendMod) {
+func (t *Transf) GetSendMod() (common.SendMod) {
     return t.sendMod
 }
 
-func (t *Transf) SetState(s state.StateType) {
+func (t *Transf) SetState(s common.StateType) {
     t.stateType = s
 }
 
-func (t *Transf) GetState() (state.StateType) {
+func (t *Transf) GetState() (common.StateType) {
     return t.stateType
 }

@@ -5,5 +5,10 @@ import (
 )
 
 type Message interface {
-    ConvToTransfer(interface{}) transf.Transfer
+    ConvToTransfer() transf.Transfer
+}
+
+type Msg struct {
+    data        interface{}
+    transfer    transf.Transfer
 }

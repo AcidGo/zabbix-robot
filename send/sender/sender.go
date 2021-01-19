@@ -4,14 +4,6 @@ import (
     "github.com/AcidGo/zabbix-robot/transf/transfer"
 )
 
-type SendMod uint
-
-const (
-    ThroughError = iota
-    ThroughData
-    DelayData
-)
-
 type Sender interface {
     InChan() chan<- transf.Transfer
     BindState(chan<- transf.Transfer)
