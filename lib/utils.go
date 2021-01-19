@@ -2,8 +2,9 @@ package utils
 
 import (
     "errors"
-    "emcdoing/json"
+    "encoding/json"
     "regexp"
+    "strings"
 )
 
 func RegexpGenMap(content string, compile *regexp.Regexp) (m map[string]interface{}, err error) {
@@ -55,4 +56,14 @@ func MapToStruct(m map[string]interface{}, v interface{}) (error) {
     return nil
 }
 
-func ExtractTags(tagKey)
+func ExtractTags(tagStr string, compile *regexp.Regexp) (m map[string]string, err error) {
+    m = make(map[string]string)
+    match := compile.FindAllStringSubmatch(tagStr, -1)
+    for _, arr := range match {
+        if len(arr) > 2 {
+            m[strings.TrimSpace(arr[1])] = strings.TrimSpace(arr[2])
+        }
+    }
+
+    return m, nil
+}

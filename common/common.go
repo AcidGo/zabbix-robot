@@ -16,7 +16,7 @@ type StateType uint
 
 const (
     // unknown state
-    Unknown StateType = iota
+    StateUnknown StateType = iota
     // finish flow task sucessfully
     Success
     // some errors
@@ -32,7 +32,8 @@ const (
 type SendMod uint
 
 const (
-    ThroughError = iota
+    SendUnknown = iota
+    ThroughError
     ThroughData
     DelayData
 )
