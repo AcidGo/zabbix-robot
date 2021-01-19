@@ -21,6 +21,7 @@ const (
     Success
     // some errors
     FlowBeginError
+    SendError
     CookError
     PrunError
     FiltError

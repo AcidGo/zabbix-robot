@@ -20,9 +20,13 @@ type Transfer interface {
     // executing send function
     SetSendMod(common.SendMod)
     GetSendMod() common.SendMod
+    GetSendDst() interface{}
     // executing state function
     SetState(common.StateType)
     GetState() common.StateType
+    // executing meta function
+    SetMeta(map[string]interface{})
+    GetMeta() map[string]interface{}
 }
 
 type Transf struct {

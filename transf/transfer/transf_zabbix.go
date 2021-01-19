@@ -58,6 +58,10 @@ func NewTransfZabbix(l *log.Logger, ops transf_zabbix.Options) (*TransfZabbix, e
     }, nil
 }
 
+func (tz *TransfZabbix) GetSendDst() interface{} {
+    return tz.remoteDst
+}
+
 func (tz *TransfZabbix) FormatData() (error) {
     rd, ok := tz.rawData.(string)
     if !ok {

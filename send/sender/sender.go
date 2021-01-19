@@ -10,5 +10,6 @@ type Sender interface {
     Run() error
     throughError(transf.Transfer) error
     throughData(transf.Transfer) error
+    throughRaw(transf.Transfer) error
     delayData(transf.Transfer, <-chan struct{}) error
 }

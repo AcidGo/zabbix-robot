@@ -7,8 +7,3 @@ import (
 type Message interface {
     ConvToTransfer() transf.Transfer
 }
-
-type Msg struct {
-    data        interface{}
-    transfer    transf.Transfer
-}
