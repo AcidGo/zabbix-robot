@@ -35,5 +35,6 @@ const (
     SendUnknown = iota
     ThroughError
     ThroughData
+    TrhoughRaw
     DelayData
 )

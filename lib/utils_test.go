@@ -79,3 +79,27 @@ func TestMapToStruct(t *testing.T) {
         }
     }
 }
+
+func TestExtractTags(t *testing.T) {
+    tests := []struct {
+        tagStr      string
+        compile     *regexp.Regexp
+        res         map[string]string
+    } {
+        {
+            "Key1:Val1, Key2:Val2, Key3:Val3",
+            regexp.MustCompile(`(?P<Key>.*?):\s?(?P<Value>.*?)(?:,|$)`),
+            map[string]string {"Key1": "Val1", "Key2": "Val2", "Key3": "Val3"},
+        },
+    }
+
+    for _, test := range tests {
+        res, err := ExtractTags(test.tagStr, test.compile)
+        if err != nil {
+            t.Error(err)
+        }
+        if cmp.Diff(res, test.res) != "" {
+            t.Errorf("ExtractTags(%v, %v): expected %v, got: %v", test.tagStr, test.compile, test.res, res)
+        }
+    }
+}

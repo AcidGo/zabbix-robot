@@ -42,8 +42,8 @@ func NewTransfZabbix(l *log.Logger, ops transf_zabbix.Options) (*TransfZabbix, e
         return nil, err
     }
 
-    return &TransfZabbix{
-        Transf: Transf{
+    return &TransfZabbix {
+        Transf: Transf {
             Logger:         l,
             rawData:        nil,
             err:            nil,

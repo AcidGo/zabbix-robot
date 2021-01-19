@@ -1,5 +1,10 @@
 package work
 
+import (
+    "github.com/AcidGo/zabbix-robot/log"
+    "github.com/AcidGo/zabbix-robot/transf/transfer"
+)
+
 type Worker interface {
     InSlot() <-chan transf.Transfer
     OutSlot() chan<- transf.Transfer
@@ -9,8 +14,9 @@ type Worker interface {
 }
 
 type Work struct {
-    readCh          <-chan transf.Transfer
-    writeCh         chan<- transf.Transfer
+    Logger          *log.Logger
+    readCh          chan transf.Transfer
+    writeCh         chan transf.Transfer
     sendCh          chan<- transf.Transfer
     stateCh         chan<- transf.Transfer
 }
