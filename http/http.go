@@ -8,9 +8,11 @@ import (
     "strings"
 
     "github.com/AcidGo/zabbix-robot/utils"
+    log "github.com/sirupsen/logrus"
 )
 
 func sendThroughString(remote string, header map[string][]string, s string) (string, int, error) {
+    log.Debugf("call sendThroughString, the content is: %s", s)
     body, length, _ := utils.StringToBody(s)
     client := &http.Client{}
     req, err := http.NewRequest("POST", remote, nil)
